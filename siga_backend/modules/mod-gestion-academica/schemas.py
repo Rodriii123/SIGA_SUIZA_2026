@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
 from typing import Optional, List
 from datetime import date, datetime
 
@@ -159,10 +159,19 @@ class SolicitudTramiteCreate(BaseModel):
     tipo_tramite: str
     observaciones: Optional[str] = None
 
+    @field_validator("tipo_tramite")
+    @classmethod
+    def validar_tipo_tramite(cls, valor: str) -> str:
+        if not valor or not valor.strip():
+            raise ValueError("El tipo de trámite es obligatorio")
+        return valor.strip()
+
 class SolicitudTramiteResponse(SolicitudTramiteCreate):
     id: int
-    estado: str
-    fecha_solicitud: date
+    # La tabla permite NULL en estos campos por datos históricos; no se debe
+    # romper la lista completa por un registro incompleto.
+    estado: Optional[str] = "pendiente"
+    fecha_solicitud: Optional[date] = None
     fecha_resolucion: Optional[date] = None
     documento_url: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)

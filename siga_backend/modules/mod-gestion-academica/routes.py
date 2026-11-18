@@ -866,7 +866,7 @@ ESTADOS_TRAMITE = {"pendiente", "en_proceso", "emitido", "rechazado", "aprobado"
 
 @router.post("/tramites/", response_model=SolicitudTramiteResponse, status_code=status.HTTP_201_CREATED)
 async def crear_tramite(data: SolicitudTramiteCreate, db: AsyncSession = Depends(get_db)):
-    db_tramite = SolicitudTramite(**data.model_dump())
+    db_tramite = SolicitudTramite(estado="pendiente", **data.model_dump())
     db.add(db_tramite)
     await db.commit()
     await db.refresh(db_tramite)
@@ -874,7 +874,9 @@ async def crear_tramite(data: SolicitudTramiteCreate, db: AsyncSession = Depends
 
 @router.get("/tramites/", response_model=List[SolicitudTramiteResponse])
 async def obtener_tramites(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(SolicitudTramite).order_by(SolicitudTramite.fecha_solicitud.desc()))
+    # Ordenar por id evita que registros históricos sin fecha queden fuera de
+    # orden o que una fecha NULL rompa la consulta.
+    result = await db.execute(select(SolicitudTramite).order_by(SolicitudTramite.id.desc()))
     return result.scalars().all()
 
 @router.put("/tramites/{tramite_id}/estado", response_model=SolicitudTramiteResponse)
