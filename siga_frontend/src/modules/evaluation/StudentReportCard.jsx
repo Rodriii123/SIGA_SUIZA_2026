@@ -56,6 +56,16 @@ const condicionTone = (estado) => {
   return 'slate';
 };
 
+const boletinTieneNotas = (boletin) => {
+  if (!boletin) return false;
+  const cursos = Array.isArray(boletin.cursos_periodo) ? boletin.cursos_periodo : [];
+  if (cursos.some(c => c && c.nota_final != null)) return true;
+  const ciclos = Array.isArray(boletin.ciclos) ? boletin.ciclos : [];
+  return ciclos.some(c =>
+    Array.isArray(c?.unidades) && c.unidades.some(u => u && u.nota != null)
+  );
+};
+
 const AccentStripe = () => (
   <div className="absolute bottom-0 left-0 right-0 h-1 flex">
     <span className="flex-1 bg-emerald-400"></span>
@@ -322,12 +332,12 @@ export function StudentReportCard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
+  const [sinNotas, setSinNotas] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [allStudents, setAllStudents] = useState([]);
   const [filteredStudents, setFilteredStudents] = useState([]);
   const [selectedStudentId, setSelectedStudentId] = useState(null);
-  const [selectedStudent, setSelectedStudent] = useState(null);
   const [selectedStudentName, setSelectedStudentName] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -400,12 +410,12 @@ export function StudentReportCard() {
 
   const handleSelectStudent = (student) => {
     setSelectedStudentId(student.id);
-    setSelectedStudent(student);
     setSelectedStudentName(`${student.apellidos}, ${student.nombres}`);
     setSearchTerm('');
     setShowDropdown(false);
     setData(null);
     setError(null);
+    setSinNotas(false);
 
     const entry = { id: student.id, nombres: student.nombres, apellidos: student.apellidos, codigo_estudiante: student.codigo_estudiante };
     setRecentStudents(prev => {
@@ -418,11 +428,11 @@ export function StudentReportCard() {
 
   const handleClearSelection = () => {
     setSelectedStudentId(null);
-    setSelectedStudent(null);
     setSelectedStudentName('');
     setSearchTerm('');
     setData(null);
     setError(null);
+    setSinNotas(false);
   };
 
   const handleRemoveRecent = (event, studentId) => {
@@ -437,62 +447,55 @@ export function StudentReportCard() {
   const effectiveStudentId = isAdmin ? selectedStudentId : user?.id;
 
   useEffect(() => {
+    let cancelled = false;
+
     if (!effectiveStudentId) {
       setLoading(false);
-      return;
+      setData(null);
+      setError(null);
+      setSinNotas(false);
+      return undefined;
     }
+
     const fetchBoletin = async () => {
       setLoading(true);
       setError(null);
+      setSinNotas(false);
       try {
-        let real = null;
-        try {
-          const res = await fetch(
-            `${API_BASE}/api/mod-gestion-academica/estudiantes/${effectiveStudentId}/boletin`,
-            { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } }
-          );
-          if (res.ok) {
-            real = await res.json();
+        const res = await fetch(
+          `${API_BASE}/api/mod-gestion-academica/estudiantes/${effectiveStudentId}/boletin`,
+          { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } }
+        );
+
+        if (!res.ok) {
+          let detalle = `No se pudo cargar el boletín (HTTP ${res.status}).`;
+          try {
+            const body = await res.json();
+            if (body?.detail) detalle = body.detail;
+          } catch {
+            // La respuesta no es JSON; se conserva el mensaje genérico.
           }
-        } catch (err) {
-          console.warn('API /boletin no disponible o error:', err);
+          throw new Error(detalle);
         }
 
-        const notasJson = obtenerNotasPorCiclo(effectiveStudentId, selectedStudent);
-        if (notasJson) {
-          const periodoActual = resumenDesdeJson(notasJson);
-          if (real) {
-            setData({
-              ...real,
-              estudiante: { ...real.estudiante, periodo_codigo: notasJson.periodoActual },
-              cursos_periodo: periodoActual.cursos_periodo,
-              resumen: { ...real.resumen, ...periodoActual.resumen },
-              _notasJson: notasJson,
-            });
-          } else {
-            const boletinJson = generarBoletinDesdeJson(effectiveStudentId, selectedStudent);
-            if (boletinJson) {
-              setData(boletinJson);
-            } else {
-              throw new Error('No se pudo generar la información del boletín.');
-            }
-          }
-        } else if (real) {
-          const evaluacion = mockEvaluacion.evaluaciones.find(
-            e => e.codigo_estudiante === real.estudiante.codigo_estudiante
-              && e.periodo === real.estudiante.periodo_codigo
-          );
-          setData(evaluacion ? { ...real, ...evaluacion } : real);
-        } else {
-          throw new Error('No se encontró información del boletín para este estudiante.');
-        }
+        const real = await res.json();
+        if (cancelled) return;
+
+        setData(real);
+        setSinNotas(!boletinTieneNotas(real));
       } catch (e) {
-        setError(e.message);
+        if (!cancelled) {
+          setData(null);
+          setError(e?.message || 'No se pudo cargar el boletín.');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setLoading(false);
     };
+
     fetchBoletin();
-  }, [effectiveStudentId, selectedStudent]);
+    return () => { cancelled = true; };
+  }, [effectiveStudentId]);
 
   useEffect(() => {
     setBusquedaCursos('');
@@ -844,6 +847,22 @@ export function StudentReportCard() {
         </button>
       </div>
 
+      {sinNotas && (
+        <div
+          role="status"
+          className={`mb-5 boletin-section rounded-xl border px-5 py-4 flex items-start gap-3 ${oficial ? 'bg-amber-50 border-amber-300' : 'bg-amber-50 border-amber-200 shadow-card'}`}
+        >
+          <ClipboardList className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" strokeWidth={2.2} />
+          <div>
+            <p className="text-sm font-extrabold text-amber-800">Sin notas registradas</p>
+            <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+              El estudiante aún no tiene evaluaciones registradas para el periodo {estudiante.periodo_codigo || 'actual'}.
+              Cuando el docente registre las notas, este boletín se actualizará automáticamente.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* SECCION 1: Datos del Estudiante */}
       <section className={`bg-white border rounded-xl overflow-hidden mb-5 boletin-section ${oficial ? 'border-slate-300 shadow' : 'border-primary/25 shadow-card-lg'}`}>
         <div className={`relative px-5 py-4 text-white overflow-hidden ${oficial ? 'bg-primary' : 'bg-gradient-to-r from-[#001F58] via-primary to-[#00B8FF]'}`}>
@@ -949,13 +968,13 @@ export function StudentReportCard() {
             <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-[0.15em] mb-2.5">Resultado del periodo</p>
             <div className="flex items-center gap-3 flex-wrap">
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-extrabold">
-                {resumen.cursos_aprobados} <span className="text-[10px] font-bold uppercase">aprob.</span>
+                {resumen.cursos_aprobados ?? 0} <span className="text-[10px] font-bold uppercase">aprob.</span>
               </span>
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm font-extrabold">
-                {resumen.cursos_desaprobados} <span className="text-[10px] font-bold uppercase">desap.</span>
+                {resumen.cursos_desaprobados ?? 0} <span className="text-[10px] font-bold uppercase">desap.</span>
               </span>
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 text-sm font-extrabold">
-                {resumen.total_cursos} <span className="text-[10px] font-bold uppercase">cursos</span>
+                {resumen.total_cursos ?? 0} <span className="text-[10px] font-bold uppercase">cursos</span>
               </span>
             </div>
             {resumen.cursos_desaprobados > 0 && (
@@ -967,15 +986,15 @@ export function StudentReportCard() {
           <div className="p-5">
             <p className="text-[10px] font-extrabold text-slate-500 uppercase tracking-[0.15em] mb-2.5">Avance del plan</p>
             <p className="text-2xl font-extrabold text-primary leading-none">
-              {progreso_creditos.porcentaje}%
+              {progreso_creditos.porcentaje ?? 0}%
               <span className="text-sm font-bold text-slate-400 ml-1.5">
-                {progreso_creditos.creditos_aprobados}/{progreso_creditos.creditos_totales} cr.
+                {progreso_creditos.creditos_aprobados ?? 0}/{progreso_creditos.creditos_totales ?? 0} cr.
               </span>
             </p>
             <div className="mt-2.5 w-full bg-slate-100 rounded-full h-2.5 overflow-hidden border border-slate-200">
               <div
                 className={`h-2.5 rounded-full transition-all duration-700 ${oficial ? 'bg-primary' : 'bg-gradient-to-r from-fuchsia-500 via-violet-500 to-primary'}`}
-                style={{ width: `${Math.max(2, progreso_creditos.porcentaje)}%` }}
+                style={{ width: `${Math.max(2, progreso_creditos.porcentaje ?? 0)}%` }}
               ></div>
             </div>
             <p className="text-[10px] text-slate-400 mt-2 font-semibold">
