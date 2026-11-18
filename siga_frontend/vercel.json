@@ -1,7 +1,24 @@
+
 {
   "framework": "vite",
   "outputDirectory": "dist",
   "rewrites": [
+    {
+      "source": "/health",
+      "destination": "https://sigasuiza2026-production-304889ea.up.railway.app/health"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://sigasuiza2026-production-304889ea.up.railway.app/api/:path*"
+    },
+    {
+      "source": "/auth/:path*",
+      "destination": "https://sigasuiza2026-production-304889ea.up.railway.app/auth/:path*"
+    },
+    {
+      "source": "/core/:path*",
+      "destination": "https://sigasuiza2026-production-304889ea.up.railway.app/core/:path*"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
