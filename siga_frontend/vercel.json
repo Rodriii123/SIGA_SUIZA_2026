@@ -7,6 +7,10 @@
       "destination": "https://sigasuiza2026-production-304889ea.up.railway.app/health"
     },
     {
+      "source": "/api/mod-gestion-academica/estudiantes/",
+      "destination": "https://sigasuiza2026-production-304889ea.up.railway.app/api/mod-gestion-academica/estudiantes/"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://sigasuiza2026-production-304889ea.up.railway.app/api/:path*"
     },
