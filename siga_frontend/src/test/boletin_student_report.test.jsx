@@ -134,4 +134,51 @@ describe('Boletín de notas - StudentReportCard', () => {
     expect(await screen.findByText('Error interno del servidor')).toBeInTheDocument();
     expect(screen.queryByText(/Sin notas registradas/i)).not.toBeInTheDocument();
   });
+
+  it('muestra correctamente la carrera, ciclo y cursos con nota 15 guardada por el docente', async () => {
+    const boletinNota15 = {
+      ...boletinConNotas,
+      estudiante: {
+        ...boletinConNotas.estudiante,
+        programa_nombre: 'Mecatrónica Automotriz'
+      },
+      cursos_periodo: [
+        { unidad_nombre: 'Sistemas Electrónicos del Automóvil', creditos: 4, nota_final: 15, estado: 'aprobado' }
+      ],
+      ciclos: [
+        {
+          ciclo: 1,
+          titulo: 'CICLO I',
+          promedio: 15,
+          creditos_ciclo: 4,
+          creditos_aprobados: 4,
+          completado: true,
+          unidades: [
+            { nombre: 'Sistemas Electrónicos del Automóvil', creditos: 4, nota: 15, estado: 'aprobado' }
+          ]
+        }
+      ],
+      resumen: {
+        promedio_general: 15,
+        cursos_aprobados: 1,
+        cursos_desaprobados: 0,
+        total_cursos: 1,
+        ciclos_completados: 1,
+        ciclos_totales: 1
+      }
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => boletinNota15
+    }));
+
+    render(<StudentReportCard />);
+
+    expect((await screen.findAllByText('Mecatrónica Automotriz')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('CICLO I')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/Sistemas Electrónicos del Automóvil/i)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('15')).length).toBeGreaterThan(0);
+  });
 });

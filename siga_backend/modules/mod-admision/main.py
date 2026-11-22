@@ -11,7 +11,8 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import delete
+from sqlalchemy import delete, text
+import unicodedata
 
 from database import engine, Base, get_db
 from models import PostulanteAdmitido
@@ -230,36 +231,39 @@ async def get_admitidos(db: AsyncSession = Depends(get_db)):
     # Formateamos para el core
     formatted = []
     
-    # Mapping simplificado para el programa_id temporal (el core deberia mapear, pero para MVP enviamos un fallback id)
-    # Mapeo exacto alineado con los IDs del frontend (1=Arquitectura/Sistemas, 2=Enfermeria, 4=Administracion, 5=Contabilidad, 6=Mecatronica)
-    program_mapping = {
-        "DESARROLLO DE SISTEMAS DE INFORMACIÓN": 1,
-        "ENFERMERÍA TÉCNICA": 2,
-        "GESTIÓN ADMINISTRATIVA": 4,
-        "ASISTENCIA ADMINISTRATIVA": 4,
-        "CONTABILIDAD": 5,
-        "MECATRÓNICA AUTOMOTRIZ": 6,
-        "ELECTRICIDAD INDUSTRIAL": 7,
-        "ADMINISTRACIÓN DE OPERACIONES TURÍSTICAS": 8,
-        "CONSTRUCCIÓN CIVIL": 9,
-        "PRODUCCIÓN AGROPECUARIA": 10,
-        "MANEJO FORESTAL": 11
-    }
-    
+    def normalizar(valor):
+        texto = " ".join(str(valor or "").strip().upper().split())
+        return "".join(
+            c for c in unicodedata.normalize("NFD", texto)
+            if unicodedata.category(c) != "Mn"
+        )
+
+    programas = (await db.execute(text("SELECT id, nombre FROM programas_estudio"))).mappings().all()
+    programas_normalizados = [(p["id"], normalizar(p["nombre"])) for p in programas]
+
+    def resolver_programa(nombre):
+        objetivo = normalizar(nombre)
+        if not objetivo:
+            return None
+        for pid, nombre_norm in programas_normalizados:
+            if nombre_norm == objetivo:
+                return pid
+        coincidencias = [
+            pid for pid, nombre_norm in programas_normalizados
+            if nombre_norm and (nombre_norm in objetivo or objetivo in nombre_norm)
+        ]
+        # Solo se asigna cuando la coincidencia es inequivoca; nunca se adivina una carrera.
+        return coincidencias[0] if len(coincidencias) == 1 else None
+
     for r in records:
-        prog_name_upper = r.programa_nombre.upper()
-        # Fallback a 99 (Desconocido) en lugar de 1, para no mezclar con Sistemas
-        prog_id = 99
-        for k,v in program_mapping.items():
-            if k in prog_name_upper or prog_name_upper in k:
-                prog_id = v
-                break
-                
+        prog_id = resolver_programa(r.programa_nombre)
+
         formatted.append({
             "dni": r.dni,
             "nombres": r.nombres,
             "apellidos": r.apellidos,
-            "programa_id": prog_id, 
+            "programa_id": prog_id,
+            "programa_nombre": r.programa_nombre,
             "celular": r.celular,
             "email_personal": r.email,
             "fecha_nacimiento": r.fecha_nacimiento,

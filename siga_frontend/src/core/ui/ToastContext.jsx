@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckCircle2, AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
+import { globalConfirm } from './ConfirmModal';
 
 const ToastContext = createContext(null);
 
@@ -180,9 +181,11 @@ export function ToastProvider({ children }) {
       error,
       warning,
       info,
+      confirm: globalConfirm,
       dismiss: removeToast,
       clear: clearToasts,
     },
+    confirm: globalConfirm,
     success,
     error,
     warning,

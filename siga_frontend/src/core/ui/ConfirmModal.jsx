@@ -4,6 +4,21 @@ import { AlertTriangle, HelpCircle, FileText, X } from 'lucide-react';
 
 const ConfirmContext = createContext(null);
 
+let activeConfirmHandler = null;
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function registerConfirmHandler(handler) {
+  activeConfirmHandler = handler;
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export async function globalConfirm(options) {
+  if (activeConfirmHandler) {
+    return activeConfirmHandler(options);
+  }
+  return true;
+}
+
 /**
  * Contenido interno del modal cuando está activo.
  */
@@ -235,6 +250,11 @@ export function ConfirmProvider({ children }) {
       });
     });
   }, []);
+
+  useEffect(() => {
+    registerConfirmHandler(openConfirm);
+    return () => registerConfirmHandler(null);
+  }, [openConfirm]);
 
   const handleClose = useCallback(() => {
     if (modalConfig?.resolve) {

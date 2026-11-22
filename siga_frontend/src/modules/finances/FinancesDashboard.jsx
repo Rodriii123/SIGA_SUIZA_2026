@@ -38,6 +38,7 @@ import {
   Tags
 } from 'lucide-react';
 import { PAYMENT_METHODS, CAREERS_MAP, useTupaCatalog, useCajaConfig, withCurrentConcept } from './tupaCatalog';
+import { useProgramas, nombreProgramaEstudiante, opcionesProgramaConEstudiantes } from '../../core/api/programas';
 import { PaymentModal } from './PaymentModal';
 import { ReceiptModal } from './ReceiptModal';
 import { AnnualStatementModal } from './AnnualStatementModal';
@@ -73,6 +74,7 @@ export function FinancesDashboard() {
   const [transactions, setTransactions] = useState([]);
   const { catalog, catalogError, reloadCatalog, saveConcept, deleteConcept, resetCatalog } = useTupaCatalog();
   const { config: cajaConfig, saveConfig: saveCajaConfig } = useCajaConfig();
+  const { programas } = useProgramas();
   const [dataError, setDataError] = useState('');
   const exportingRef = useRef(false);
   const [migrationNotice, setMigrationNotice] = useState('');
@@ -234,6 +236,11 @@ export function FinancesDashboard() {
 
   // Sin búsqueda, la lista de cobranza solo muestra a quienes aún no pagaron la matrícula (base de datos);
   // con búsqueda también aparecen los que ya pagaron, como tarjetas informativas.
+  const careerOptions = useMemo(
+    () => opcionesProgramaConEstudiantes(programas, students),
+    [programas, students]
+  );
+
   const filteredStudents = useMemo(
     () => (hasSearch ? matchingStudents : matchingStudents.filter(s => !s.pago_matricula)),
     [matchingStudents, hasSearch]
@@ -353,7 +360,7 @@ export function FinancesDashboard() {
             dni: String(s.dni ?? ''),
             nombre: `${s.nombres} ${s.apellidos}`,
             codigo: s.codigo_estudiante || '',
-            programa: CAREERS_MAP[s.programa_id] || 'Programa de Estudio General',
+            programa: nombreProgramaEstudiante(s, programas, CAREERS_MAP[s.programa_id] || 'Programa de Estudio General'),
           }))
           .sort((a, b) => a.programa.localeCompare(b.programa) || a.nombre.localeCompare(b.nombre)),
       };
@@ -654,9 +661,9 @@ export function FinancesDashboard() {
                 onChange={(e) => setFilterCareer(e.target.value)}
                 className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
-                <option value="todas">Todas las Carreras Técnicas (11)</option>
-                {Object.entries(CAREERS_MAP).map(([id, name]) => (
-                  <option key={id} value={id}>{name}</option>
+                <option value="todas">Todas las Carreras Técnicas ({careerOptions.length})</option>
+                {careerOptions.map(({ value, label }) => (
+                  <option key={value} value={value}>{label}</option>
                 ))}
               </select>
 
@@ -733,7 +740,7 @@ export function FinancesDashboard() {
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {paginatedStudents.map(student => {
-                const career = CAREERS_MAP[student.programa_id] || 'Programa de Estudio General';
+                const career = nombreProgramaEstudiante(student, programas, CAREERS_MAP[student.programa_id] || 'Programa de Estudio General');
                 const isPaid = student.pago_matricula;
                 const isSelected = selectedStudentForDossier?.id === student.id;
                 const matriculaReceipt = isPaid ? findMatriculaReceipt(transactions, student) : null;
@@ -860,7 +867,7 @@ export function FinancesDashboard() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {paginatedStudents.map(student => {
-                      const career = CAREERS_MAP[student.programa_id] || 'General';
+                      const career = nombreProgramaEstudiante(student, programas, CAREERS_MAP[student.programa_id] || 'General');
                       const isPaid = student.pago_matricula;
                       const matriculaReceipt = isPaid ? findMatriculaReceipt(transactions, student) : null;
                       return (

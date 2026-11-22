@@ -454,6 +454,7 @@ async def construir_estado_cuenta(db: AsyncSession, est: Estudiante, secreto: by
     url_publica = await url_publica_qr(db)
     nombre = f"{est.nombres} {est.apellidos}"
     meta = est.metadata_admision or {}
+    programa = await programa_de_estudiante(db, est)
     movimientos = []
 
     # 1. Derecho de admisión (registrado por la Comisión de Admisión)
@@ -520,6 +521,8 @@ async def construir_estado_cuenta(db: AsyncSession, est: Estudiante, secreto: by
         "estudiante": {
             "id": est.id, "dni": est.dni, "nombres": est.nombres, "apellidos": est.apellidos,
             "codigo_estudiante": est.codigo_estudiante, "programa_id": est.programa_id,
+            "programa_nombre": programa["nombre"] if programa else None,
+            "programa_codigo": programa["codigo"] if programa else None,
             "modalidad_admision": est.modalidad_admision, "pago_matricula": bool(est.pago_matricula),
         },
         "movimientos": movimientos,
@@ -548,6 +551,17 @@ async def estudiante_o_404(db: AsyncSession, estudiante_id: int) -> Estudiante:
     if not est:
         raise HTTPException(404, detail="Estudiante no encontrado")
     return est
+
+
+async def programa_de_estudiante(db: AsyncSession, est: Estudiante) -> Optional[dict]:
+    """Nombre y código oficiales de la carrera según programas_estudio."""
+    if not est.programa_id:
+        return None
+    fila = (await db.execute(
+        text("SELECT id, nombre, codigo FROM programas_estudio WHERE id = :pid"),
+        {"pid": est.programa_id},
+    )).mappings().first()
+    return dict(fila) if fila else None
 
 
 # ---------------------------------------------------------------------------
@@ -704,10 +718,13 @@ async def registrar_pago(data: PagoIn, request: Request, db: AsyncSession = Depe
         tarifa = tarifa or info["tarifas"][0]
         monto, tarifa_nombre = tarifa["monto"], tarifa["nombre"]
 
+    programa = await programa_de_estudiante(db, est)
+    carrera = (programa["nombre"] if programa else None) or data.carreraNombre
     pago = PagoCaja(
         codigo_recibo=await siguiente_codigo_recibo(db),
         estudiante_id=est.id, dni=est.dni, estudiante_nombre=f"{est.nombres} {est.apellidos}",
-        codigo_estudiante=est.codigo_estudiante, carrera_nombre=data.carreraNombre,
+        codigo_estudiante=est.codigo_estudiante,
+        carrera_nombre=carrera,
         concepto_id=concepto.id, concepto_codigo=concepto.codigo, concepto_nombre=concepto.nombre,
         concepto_categoria=concepto.categoria, tipo_precio=concepto.tipo_precio, tarifa_nombre=tarifa_nombre,
         monto=monto, metodo_pago_id=data.metodoPagoId, metodo_pago_nombre=METODOS_PAGO[data.metodoPagoId],
@@ -772,9 +789,11 @@ async def importar_datos_locales(data: ImportacionIn, request: Request, db: Asyn
             resumen["omitidos"] += 1
             continue
         metodo = p.get("metodoPagoId") if p.get("metodoPagoId") in METODOS_PAGO else "efectivo"
+        prog = await programa_de_estudiante(db, est)
+        carrera_nombre = (prog["nombre"] if prog else None) or p.get("carreraNombre")
         importado = PagoCaja(
             codigo_recibo=codigo, estudiante_id=est.id, dni=est.dni, estudiante_nombre=f"{est.nombres} {est.apellidos}",
-            codigo_estudiante=est.codigo_estudiante, carrera_nombre=p.get("carreraNombre"),
+            codigo_estudiante=est.codigo_estudiante, carrera_nombre=carrera_nombre,
             concepto_codigo=str(p.get("conceptoCodigo") or "OTRO")[:30], concepto_nombre=str(p.get("conceptoNombre") or "Concepto")[:255],
             concepto_categoria=p.get("conceptoCategoria"), tipo_precio=p.get("tipoPrecio") or "fijo",
             tarifa_nombre=p.get("tarifaNombre") or "General", monto=round(float(p.get("monto") or 0), 2),

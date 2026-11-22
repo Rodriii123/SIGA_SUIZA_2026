@@ -520,5 +520,39 @@ describe('Integración combinada (ToastProvider + ConfirmProvider)', () => {
       expect(screen.getByTestId('toast-info')).toBeInTheDocument();
     });
   });
+
+  it('3. Debe permitir invocar confirm() directamente a través de toast.confirm()', async () => {
+    function ToastConfirmConsumer() {
+      const toast = useToast();
+      const handleClick = async () => {
+        const ok = await toast.confirm({
+          title: 'Sincronizar Admisión',
+          message: '¿Sincronizar lista de ingresantes?',
+        });
+        if (ok) toast.success('Sincronización confirmada');
+      };
+      return <button onClick={handleClick}>Sincronizar</button>;
+    }
+
+    render(
+      <ToastProvider>
+        <ConfirmProvider>
+          <ToastConfirmConsumer />
+        </ConfirmProvider>
+      </ToastProvider>
+    );
+
+    fireEvent.click(screen.getByText('Sincronizar'));
+    expect(screen.getByTestId('confirm-modal')).toBeInTheDocument();
+    expect(screen.getByText('Sincronizar Admisión')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('confirm-modal-ok'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('confirm-modal')).not.toBeInTheDocument();
+      expect(screen.getByText('Sincronización confirmada')).toBeInTheDocument();
+      expect(screen.getByTestId('toast-success')).toBeInTheDocument();
+    });
+  });
 });
 

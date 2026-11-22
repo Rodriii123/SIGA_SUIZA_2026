@@ -45,6 +45,8 @@ class EstudianteUpdate(BaseModel):
 
 class EstudianteResponse(EstudianteBase):
     id: int
+    programa_nombre: Optional[str] = None
+    programa_codigo: Optional[str] = None
     estado_academico: Optional[str] = "regular"
     foto_url: Optional[str] = None
     observaciones: Optional[str] = None
@@ -87,7 +89,8 @@ class IngestaAdmitido(BaseModel):
     dni: str
     nombres: str
     apellidos: str
-    programa_id: int
+    programa_id: Optional[int] = None
+    programa_nombre: Optional[str] = None
     periodo_id: Optional[int] = 1
     celular: Optional[str] = None
     email_personal: Optional[str] = None

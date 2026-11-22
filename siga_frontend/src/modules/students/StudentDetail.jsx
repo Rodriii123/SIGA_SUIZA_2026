@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { API_BASE } from '../../core/api/client';
+import { useProgramas, nombreProgramaEstudiante, programaNombre as resolverProgramaNombre } from '../../core/api/programas';
 import techBg from '../../assets/tech-bg.jpg';
 import { ProtectedImage } from './ProtectedImage';
 import {
@@ -10,20 +11,6 @@ import {
   Briefcase, Wifi, AlertTriangle, CheckCircle2, FileCheck2,
   Users, AlertCircle, Info, Sparkles, DollarSign, Activity
 } from 'lucide-react';
-
-const PROGRAMAS = {
-  1: 'Administración de Operaciones Turísticas',
-  2: 'Asistencia Administrativa',
-  3: 'Contabilidad',
-  4: 'Construcción Civil',
-  5: 'Gestión Administrativa',
-  6: 'Desarrollo de Sistemas de Información',
-  7: 'Electricidad Industrial',
-  8: 'Enfermería Técnica',
-  9: 'Manejo Forestal',
-  10: 'Mecatrónica Automotriz',
-  11: 'Producción Agropecuaria',
-};
 
 const ESTADO_COLORS = {
   postulante: 'bg-amber-100 text-amber-900 border-amber-300 ring-2 ring-amber-300/30',
@@ -112,6 +99,7 @@ function EmptyState({ icon: Icon, title, description }) {
 }
 
 export function StudentDetail({ student, onClose }) {
+  const { programas } = useProgramas();
   const [detail, setDetail] = useState(null);
   const [matriculas, setMatriculas] = useState([]);
   const [beneficios, setBeneficios] = useState([]);
@@ -197,7 +185,7 @@ export function StudentDetail({ student, onClose }) {
 
   const s = detail || student;
   const initials = `${(s.nombres || '')[0] || ''}${(s.apellidos || '')[0] || ''}`.toUpperCase();
-  const programaNombre = PROGRAMAS[s.programa_id] || (s.programa_id ? `Programa ${s.programa_id}` : 'Sin carrera asignada');
+  const programaNombre = nombreProgramaEstudiante(s, programas);
 
   const fechaNac = s.fecha_nacimiento
     ? new Date(s.fecha_nacimiento + 'T00:00:00').toLocaleDateString('es-PE', { day: '2-digit', month: 'long', year: 'numeric' })
@@ -592,7 +580,7 @@ export function StudentDetail({ student, onClose }) {
                           {matriculas.map(m => (
                             <tr key={m.id} className="hover:bg-primary/5 transition-colors">
                               <td className="py-3 px-4 font-extrabold text-slate-900">Periodo {m.periodo_id}</td>
-                              <td className="py-3 px-4 text-slate-700 font-semibold">{PROGRAMAS[m.programa_id] || `Programa ${m.programa_id}`}</td>
+                              <td className="py-3 px-4 text-slate-700 font-semibold">{m.programa_nombre || resolverProgramaNombre(m.programa_id, programas)}</td>
                               <td className="py-3 px-4 text-slate-600 font-bold">{m.tipo_ingreso}</td>
                               <td className="py-3 px-4 text-center">
                                 <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-black uppercase ${

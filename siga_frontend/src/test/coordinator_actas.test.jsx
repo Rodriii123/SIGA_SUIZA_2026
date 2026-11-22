@@ -116,6 +116,9 @@ describe('Auditoría Frontend - Coordinación de Programa (Control de Actas)', (
     const tabActas = await screen.findByTestId('tab-control-actas');
     fireEvent.click(tabActas);
 
+    // Esperar a que finalice la carga inicial antes de abrir el modal
+    await screen.findByText('Taller de Programación Web');
+
     // Abrir modal de fecha límite masiva
     const btnMasiva = await screen.findByTestId('btn-fecha-limite-masiva');
     fireEvent.click(btnMasiva);
