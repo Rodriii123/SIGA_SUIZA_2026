@@ -16,7 +16,7 @@ import {
   CheckCircle2,
   EyeOff,
 } from 'lucide-react';
-import { PAYMENT_METHODS, CAREERS_MAP, getAvailableConcepts } from './tupaCatalog';
+import { PAYMENT_METHODS, getAvailableConcepts } from './tupaCatalog';
 import { useToast } from '../../core/ui/ToastContext';
 import { ConceptFormModal } from './ConceptFormModal';
 import { ModalPortal } from './ModalPortal';
@@ -66,12 +66,8 @@ export function PaymentModal({
   const selectedTarifa = selectedConcept
     ? selectedConcept.tarifas.find(t => t.id === selectedTarifaId) || selectedConcept.tarifas[0]
     : null;
-  // Prioriza el nombre real del programa proveniente de la base de datos (campo programa_nombre que
-  // devuelve la API /estudiantes/). Solo recurre al mapa local como último fallback.
-  const careerName =
-    student.programa_nombre ||
-    CAREERS_MAP[student.programa_id] ||
-    'Programa de Estudio General';
+  // Nombre real del programa resuelto por el backend desde programas_estudio.
+  const careerName = student.programa_nombre || 'Programa de Estudio General';
 
   const isLibre = selectedConcept?.tipoPrecio === 'libre';
   const monto = !selectedConcept

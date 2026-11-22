@@ -373,7 +373,8 @@ def concepto_dict(c: ConceptoTupa) -> dict:
     }
 
 
-def pago_dict(p: PagoCaja, secreto: bytes, url_publica: Optional[str] = None) -> dict:
+def pago_dict(p: PagoCaja, secreto: bytes, url_publica: Optional[str] = None,
+              programa: Optional[dict] = None) -> dict:
     datos = {
         "id": p.id,
         "codigoRecibo": p.codigo_recibo,
@@ -381,7 +382,8 @@ def pago_dict(p: PagoCaja, secreto: bytes, url_publica: Optional[str] = None) ->
         "estudianteNombre": p.estudiante_nombre,
         "dni": p.dni,
         "codigoEstudiante": p.codigo_estudiante,
-        "carreraNombre": p.carrera_nombre,
+        "carreraNombre": (programa or {}).get("nombre") or p.carrera_nombre,
+        "programaCodigo": (programa or {}).get("codigo") or None,
         "conceptoId": p.concepto_id,
         "conceptoCodigo": p.concepto_codigo,
         "conceptoNombre": p.concepto_nombre,
@@ -402,6 +404,34 @@ def pago_dict(p: PagoCaja, secreto: bytes, url_publica: Optional[str] = None) ->
         "token": firmar(secreto, p.codigo_recibo, p.dni),
     }
     return agregar_qr(datos, secreto, url_publica)
+
+
+async def pagos_dict(db: AsyncSession, pagos, secreto: bytes,
+                     url_publica: Optional[str] = None) -> list:
+    """Serializa pagos con la carrera vigente de programas_estudio.
+
+    El nombre guardado en el recibo es solo histórico; los comprobantes deben
+    mostrar la carrera real del estudiante, resuelta por su programa_id actual.
+    """
+    pagos = list(pagos)
+    estudiante_ids = sorted({p.estudiante_id for p in pagos if p.estudiante_id})
+    programas = {}
+    if estudiante_ids:
+        placeholders = ",".join(f":e{i}" for i in range(len(estudiante_ids)))
+        filas = (await db.execute(
+            text(f"""
+                SELECT e.id AS estudiante_id, pr.nombre, pr.codigo
+                FROM estudiantes e
+                JOIN programas_estudio pr ON pr.id = e.programa_id
+                WHERE e.id IN ({placeholders})
+            """),
+            {f"e{i}": eid for i, eid in enumerate(estudiante_ids)},
+        )).mappings().all()
+        programas = {
+            fila["estudiante_id"]: {"nombre": fila["nombre"], "codigo": fila["codigo"]}
+            for fila in filas
+        }
+    return [pago_dict(p, secreto, url_publica, programas.get(p.estudiante_id)) for p in pagos]
 
 
 def normalizar_tarifas(data: ConceptoIn) -> list:
@@ -481,7 +511,7 @@ async def construir_estado_cuenta(db: AsyncSession, est: Estudiante, secreto: by
     result = await db.execute(select(PagoCaja).where(PagoCaja.estudiante_id == est.id, PagoCaja.estado == "PAGADO")
                               .order_by(PagoCaja.fecha_pago))
     pagos = result.scalars().all()
-    movimientos.extend(pago_dict(p, secreto, url_publica) for p in pagos)
+    movimientos.extend(await pagos_dict(db, pagos, secreto, url_publica))
 
     # 3. Matrícula: la condición financiera la define estudiantes.pago_matricula
     if est.pago_matricula and not any(p.libera_matricula for p in pagos):
@@ -680,7 +710,7 @@ async def listar_pagos(estudiante_id: Optional[int] = None, db: AsyncSession = D
         stmt = stmt.where(PagoCaja.estudiante_id == estudiante_id)
     url_publica = await url_publica_qr(db)
     result = await db.execute(stmt)
-    return [pago_dict(p, secreto, url_publica) for p in result.scalars().all()]
+    return await pagos_dict(db, result.scalars().all(), secreto, url_publica)
 
 
 @router.post("/pagos", status_code=201)
@@ -742,7 +772,8 @@ async def registrar_pago(data: PagoIn, request: Request, db: AsyncSession = Depe
     }, request)
     await db.commit()
     await db.refresh(pago)
-    return {"pago": pago_dict(pago, secreto, await url_publica_qr(db)), "pagoMatricula": bool(est.pago_matricula)}
+    pago_serializado = (await pagos_dict(db, [pago], secreto, await url_publica_qr(db)))[0]
+    return {"pago": pago_serializado, "pagoMatricula": bool(est.pago_matricula)}
 
 
 @router.get("/estudiantes/{estudiante_id}/estado-cuenta")
@@ -910,7 +941,7 @@ async def _buscar_pago_dict(db: AsyncSession, codigo: str, dni: str, secreto: by
             PagoCaja.estado == "PAGADO",
         ))).scalar_one_or_none()
         if pago and (not dni or str(pago.dni) == dni):
-            return pago_dict(pago, secreto, url_publica)
+            return (await pagos_dict(db, [pago], secreto, url_publica))[0]
 
     est = await _estudiante_por_dni(db, dni) if dni else None
     if not est and codigo.upper().startswith("ACR-"):
@@ -1043,7 +1074,7 @@ async def listar_boletas_disponibles(dni: Optional[str] = None, q: Optional[str]
             ))
 
     pagos = (await db.execute(stmt.order_by(PagoCaja.fecha_pago.desc(), PagoCaja.id.desc()).limit(200))).scalars().all()
-    boletas = [pago_dict(p, secreto, url_publica) for p in pagos]
+    boletas = await pagos_dict(db, pagos, secreto, url_publica)
     boletas.extend(await _boletas_sinteticas(db, secreto, dni or "", estudiante_id, termino, concepto or ""))
 
     vistas, resultado = set(), []

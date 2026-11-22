@@ -13,6 +13,7 @@ ni cambia el comportamiento por defecto (motor flexible). Implementa, en orden:
 8. Historial y avance  -> historial académico y créditos del estudiante.
 """
 import json
+import unicodedata
 import uuid
 from datetime import datetime
 from io import BytesIO
@@ -117,6 +118,10 @@ _MAP_COLUMNAS = {
     "apellido_materno": ["apellido materno", "materno", "segundo apellido"],
     "apellidos": ["apellidos"],
     "programa_id": ["programa_id", "id_programa", "programa id"],
+    "programa_nombre": [
+        "programa_nombre", "programa", "carrera", "programa de estudios",
+        "programa de estudio",
+    ],
     "celular": ["celular", "telefono", "teléfono", "celular:"],
     "email_personal": ["email_personal", "correo", "correo:", "email"],
     "modalidad": ["modalidad", "modalidad_admision", "modalidad de admisión"],
@@ -124,7 +129,8 @@ _MAP_COLUMNAS = {
 
 
 def _normaliza_header(header: str) -> str:
-    return str(header).strip().lower().replace("  ", " ")
+    """Normaliza encabezados con espacios/tildes variables (ej. 'PROGRAMA DE   ESTUDIOS')."""
+    return " ".join(str(header or "").strip().lower().split())
 
 
 def _resolver_columnas(df_columns):
@@ -148,6 +154,69 @@ def _limpiar(valor):
     if texto.lower() in ("", "nan", "none"):
         return None
     return texto.replace(".0", "") if texto.endswith(".0") else texto
+
+
+def _normalizar_programa(valor) -> str:
+    """Normaliza un nombre de programa para compararlo sin acentos ni casing."""
+    texto = " ".join(str(valor or "").strip().upper().split())
+    return "".join(
+        c for c in unicodedata.normalize("NFD", texto)
+        if unicodedata.category(c) != "Mn"
+    )
+
+
+async def _catalogo_programas(db: AsyncSession) -> list:
+    """Carreras oficiales; nunca se adivina una a partir de un ID fijo."""
+    return (await db.execute(
+        text("SELECT id, nombre FROM programas_estudio")
+    )).mappings().all()
+
+
+def _resolver_programa_id(programa_id, programa_nombre, programas) -> Optional[int]:
+    """Resuelve la carrera contra el catálogo oficial.
+
+    Reglas:
+    * un ID solo vale si existe en ``programas_estudio``;
+    * un nombre solo vale si coincide de forma exacta o inequívoca;
+    * si ID y nombre se contradicen, no se asigna nada.
+    """
+    catalogo = []
+    for fila in programas or []:
+        try:
+            pid, nombre = fila["id"], fila["nombre"]
+        except (TypeError, KeyError, IndexError):
+            continue
+        if pid is not None:
+            catalogo.append((pid, _normalizar_programa(nombre)))
+
+    ids_oficiales = {pid for pid, _ in catalogo}
+    id_oficial = None
+    if programa_id is not None and str(programa_id).strip() != "":
+        try:
+            pid = int(programa_id)
+        except (TypeError, ValueError):
+            pid = None
+        if pid in ids_oficiales:
+            id_oficial = pid
+
+    nombre_oficial = None
+    objetivo = _normalizar_programa(programa_nombre)
+    if objetivo:
+        for pid, nombre_norm in catalogo:
+            if nombre_norm == objetivo:
+                nombre_oficial = pid
+                break
+        if nombre_oficial is None:
+            coincidencias = [
+                pid for pid, nombre_norm in catalogo
+                if nombre_norm and (nombre_norm in objetivo or objetivo in nombre_norm)
+            ]
+            if len(coincidencias) == 1:
+                nombre_oficial = coincidencias[0]
+
+    if id_oficial is not None and nombre_oficial is not None and id_oficial != nombre_oficial:
+        return None
+    return id_oficial if id_oficial is not None else nombre_oficial
 
 
 def parse_excel_ingresantes(contenido: bytes) -> List[dict]:
@@ -175,6 +244,7 @@ def parse_excel_ingresantes(contenido: bytes) -> List[dict]:
             "nombres": _limpiar(fila.get(cols.get("nombres"))) if cols.get("nombres") else "SIN NOMBRES",
             "apellidos": apellidos or "SIN APELLIDOS",
             "programa_id": _limpiar(fila.get(cols.get("programa_id"))) if cols.get("programa_id") else None,
+            "programa_nombre": _limpiar(fila.get(cols.get("programa_nombre"))) if cols.get("programa_nombre") else None,
             "celular": _limpiar(fila.get(cols.get("celular"))) if cols.get("celular") else None,
             "email_personal": _limpiar(fila.get(cols.get("email_personal"))) if cols.get("email_personal") else None,
             "modalidad": (_limpiar(fila.get(cols.get("modalidad"))) if cols.get("modalidad") else None) or "ORDINARIO",
@@ -198,23 +268,29 @@ def parse_json_ingresantes(contenido: bytes) -> List[dict]:
     for item in data:
         if not isinstance(item, dict):
             continue
-        dni = _limpiar(item.get("dni") or item.get("nro de documento") or item.get("numero de documento"))
+        cols = _resolver_columnas(item.keys())
+
+        def valor(campo):
+            clave = cols.get(campo)
+            return _limpiar(item.get(clave)) if clave is not None else None
+
+        dni = valor("dni")
         if not dni:
             continue
-        apellidos = _limpiar(item.get("apellidos"))
+        apellidos = valor("apellidos")
         if not apellidos:
             apellidos = " ".join(filter(None, [
-                _limpiar(item.get("apellido_paterno") or item.get("paterno")),
-                _limpiar(item.get("apellido_materno") or item.get("materno")),
+                valor("apellido_paterno"), valor("apellido_materno"),
             ])).strip() or None
         registros.append({
             "dni": dni,
-            "nombres": _limpiar(item.get("nombres") or item.get("nombre")) or "SIN NOMBRES",
+            "nombres": valor("nombres") or "SIN NOMBRES",
             "apellidos": apellidos or "SIN APELLIDOS",
-            "programa_id": _limpiar(item.get("programa_id") or item.get("id_programa")),
-            "celular": _limpiar(item.get("celular") or item.get("telefono")),
-            "email_personal": _limpiar(item.get("email_personal") or item.get("correo")),
-            "modalidad": _limpiar(item.get("modalidad") or item.get("modalidad_admision")) or "ORDINARIO",
+            "programa_id": valor("programa_id"),
+            "programa_nombre": valor("programa_nombre"),
+            "celular": valor("celular"),
+            "email_personal": valor("email_personal"),
+            "modalidad": valor("modalidad") or "ORDINARIO",
         })
     return registros
 
@@ -256,6 +332,20 @@ async def admision_excel(
     if not registros:
         raise HTTPException(status_code=400, detail="No se encontraron ingresantes con DNI en el archivo.")
 
+    programas = await _catalogo_programas(db)
+
+    def resolver_programa(reg):
+        """Carrera del registro; el parámetro solo se usa si el archivo no trae ninguna."""
+        resuelto = _resolver_programa_id(
+            reg.get("programa_id"), reg.get("programa_nombre"), programas
+        )
+        if (resuelto is None
+                and not reg.get("programa_id")
+                and not reg.get("programa_nombre")
+                and programa_id is not None):
+            resuelto = _resolver_programa_id(programa_id, None, programas)
+        return resuelto
+
     periodo_info = await fetch_periodo(periodo_id)
     codigo_periodo = periodo_info.get("codigo") if periodo_info else f"ID {periodo_id}"
     es_inicio = es_periodo_inicio_anio(codigo_periodo)
@@ -266,13 +356,29 @@ async def admision_excel(
             ya = (await db.execute(
                 select(Estudiante).where(Estudiante.dni == reg["dni"])
             )).scalar_one_or_none()
-            preview.append({**reg, "existe": ya is not None, "estudiante_id": ya.id if ya else None})
-        
-        advertencia = None
+            prog_id = resolver_programa(reg)
+            preview.append({
+                **reg,
+                "programa_id": prog_id,
+                "programa_nombre_resuelto": next(
+                    (p["nombre"] for p in programas if p["id"] == prog_id), None
+                ),
+                "programa_resuelto": prog_id is not None,
+                "existe": ya is not None,
+                "estudiante_id": ya.id if ya else None,
+            })
+
+        advertencias = []
         if not es_inicio:
-            advertencia = (
+            advertencias.append(
                 f"El periodo seleccionado '{codigo_periodo}' no es de inicio de año (ej. 2026-I). "
                 "En este periodo no aplica matrícula automática de ingresantes (cachimbos)."
+            )
+        sin_programa = [r["dni"] for r in preview if r["programa_id"] is None]
+        if sin_programa:
+            advertencias.append(
+                f"{len(sin_programa)} ingresante(s) sin carrera oficial resoluble "
+                f"(DNI: {', '.join(sin_programa[:5])}). Corrige el archivo antes de procesar."
             )
 
         return {
@@ -285,7 +391,7 @@ async def admision_excel(
             "periodo_id": periodo_id,
             "periodo_codigo": codigo_periodo,
             "es_periodo_inicio": es_inicio,
-            "advertencia": advertencia,
+            "advertencia": " ".join(advertencias) or None,
         }
 
     creados, existentes = 0, 0
@@ -295,12 +401,17 @@ async def admision_excel(
         if ya.scalar_one_or_none():
             existentes += 1
             continue
-        prog = reg["programa_id"] or programa_id
-        try:
-            prog_id = int(prog) if prog else None
-        except (TypeError, ValueError):
-            prog = str(prog).strip()
-            prog_id = int(prog) if prog.isdigit() else programa_id
+        prog_id = resolver_programa(reg)
+        if prog_id is None:
+            await db.rollback()
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"No se puede registrar al ingresante con DNI {reg['dni']}: "
+                    "su carrera no coincide con ningún programa oficial. "
+                    "No se creó ningún estudiante ni matrícula."
+                ),
+            )
         codigo = f"{datetime.now().year}-{reg['dni']}"
         estudiante = Estudiante(
             codigo_estudiante=codigo,
@@ -326,7 +437,6 @@ async def admision_excel(
             matricula_resultado = await matricular_ingresantes(
                 MatricularIngresantesRequest(
                     estudiante_ids=ids_creados,
-                    programa_id=programa_id,
                     periodo_id=periodo_id,
                 ),
                 request,

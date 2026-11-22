@@ -1,21 +1,47 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { apiClient, API_BASE } from '../../core/api/client';
 
 export default function ExtraordinaryEnrollmentModal({ isOpen, onClose, onSuccess, currentPrograma, userRole }) {
+  const [programas, setProgramas] = useState([]);
   const [formData, setFormData] = useState({
     dni: '',
     nombres: '',
     apellidos: '',
     codigo_estudiante: '',
-    programa_id: currentPrograma === 'ALL' ? '1' : currentPrograma
+    programa_id: currentPrograma && currentPrograma !== 'ALL' ? String(currentPrograma) : ''
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    let activo = true;
+    apiClient.request('/api/mod-programas-estudio/programas')
+      .then((lista) => {
+        if (!activo) return;
+        const oficiales = Array.isArray(lista) ? lista : [];
+        setProgramas(oficiales);
+        setFormData((prev) => {
+          const sigueSiendoOficial = oficiales.some(
+            (p) => String(p.id) === String(prev.programa_id)
+          );
+          return { ...prev, programa_id: sigueSiendoOficial ? String(prev.programa_id) : '' };
+        });
+      })
+      .catch((e) => {
+        if (activo) setError(e.message || 'No se pudo cargar el catálogo oficial de programas.');
+      });
+    return () => { activo = false; };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.programa_id) {
+      setError('Selecciona un programa del catálogo oficial.');
+      return;
+    }
     setLoading(true);
     setError(null);
 
@@ -151,12 +177,10 @@ export default function ExtraordinaryEnrollmentModal({ isOpen, onClose, onSucces
                 value={formData.programa_id}
                 onChange={e => setFormData({...formData, programa_id: e.target.value})}
               >
-                <option value="1">Arquitectura de Plataformas y Servicios T.I.</option>
-                <option value="2">Enfermería Técnica</option>
-                <option value="3">Diseño Gráfico</option>
-                <option value="4">Administración</option>
-                <option value="5">Contabilidad</option>
-                <option value="6">Mecatrónica</option>
+                <option value="">Selecciona el programa oficial</option>
+                {programas.map((p) => (
+                  <option key={p.id} value={p.id}>{p.nombre}</option>
+                ))}
               </select>
             </div>
           )}

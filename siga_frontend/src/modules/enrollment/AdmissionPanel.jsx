@@ -41,7 +41,8 @@ export function AdmissionPanel() {
         const per = Array.isArray(pe) ? pe : [];
         setPrograms(prog);
         setPeriods(per);
-        if (prog.length > 0) setProgramaId(String(prog[0].id));
+        // No se preselecciona la primera carrera: el programa debe venir del
+        // archivo o ser elegido explícitamente por el operador.
         const activo = getDefaultPeriod(per);
         if (activo) setPeriodoId(String(activo.id));
       } catch (e) {
@@ -278,7 +279,11 @@ export function AdmissionPanel() {
                     <td className="py-2 pr-4 font-mono text-slate-700">{r.dni}</td>
                     <td className="py-2 pr-4 text-slate-700">{r.nombres}</td>
                     <td className="py-2 pr-4 text-slate-700">{r.apellidos}</td>
-                    <td className="py-2 pr-4 text-slate-500">{r.programa_id || programaId || '-'}</td>
+                    <td className="py-2 pr-4 text-slate-500">
+                      {r.programa_resuelto === false
+                        ? <span className="text-amber-700 font-semibold">Sin carrera oficial</span>
+                        : (r.programa_nombre_resuelto || '-')}
+                    </td>
                     <td className="py-2 pr-4 text-slate-500">{r.celular || '-'}</td>
                     <td className="py-2 pr-4 text-slate-500">{r.email_personal || '-'}</td>
                     <td className="py-2">

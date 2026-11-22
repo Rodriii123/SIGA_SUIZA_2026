@@ -39,7 +39,7 @@ export function RestriccionesPanel() {
         const pers = Array.isArray(per) ? per : [];
         setPrograms(progs);
         setPeriods(pers);
-        if (progs.length > 0) setProgramaId(String(progs[0].id));
+        // El programa se toma del estudiante seleccionado o se elige explícitamente.
         const activo = getDefaultPeriod(pers);
         if (activo) setPeriodoId(String(activo.id));
       } catch (e) {

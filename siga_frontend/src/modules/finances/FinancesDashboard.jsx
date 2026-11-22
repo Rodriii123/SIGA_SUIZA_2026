@@ -37,7 +37,7 @@ import {
   X,
   Tags
 } from 'lucide-react';
-import { PAYMENT_METHODS, CAREERS_MAP, useTupaCatalog, useCajaConfig, withCurrentConcept } from './tupaCatalog';
+import { PAYMENT_METHODS, useTupaCatalog, useCajaConfig, withCurrentConcept } from './tupaCatalog';
 import { useProgramas, nombreProgramaEstudiante, opcionesProgramaConEstudiantes } from '../../core/api/programas';
 import { PaymentModal } from './PaymentModal';
 import { ReceiptModal } from './ReceiptModal';
@@ -360,7 +360,7 @@ export function FinancesDashboard() {
             dni: String(s.dni ?? ''),
             nombre: `${s.nombres} ${s.apellidos}`,
             codigo: s.codigo_estudiante || '',
-            programa: nombreProgramaEstudiante(s, programas, CAREERS_MAP[s.programa_id] || 'Programa de Estudio General'),
+            programa: nombreProgramaEstudiante(s, programas, 'Programa de Estudio General'),
           }))
           .sort((a, b) => a.programa.localeCompare(b.programa) || a.nombre.localeCompare(b.nombre)),
       };
@@ -740,7 +740,7 @@ export function FinancesDashboard() {
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {paginatedStudents.map(student => {
-                const career = nombreProgramaEstudiante(student, programas, CAREERS_MAP[student.programa_id] || 'Programa de Estudio General');
+                const career = nombreProgramaEstudiante(student, programas, 'Programa de Estudio General');
                 const isPaid = student.pago_matricula;
                 const isSelected = selectedStudentForDossier?.id === student.id;
                 const matriculaReceipt = isPaid ? findMatriculaReceipt(transactions, student) : null;
@@ -867,7 +867,7 @@ export function FinancesDashboard() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {paginatedStudents.map(student => {
-                      const career = nombreProgramaEstudiante(student, programas, CAREERS_MAP[student.programa_id] || 'General');
+                      const career = nombreProgramaEstudiante(student, programas, 'General');
                       const isPaid = student.pago_matricula;
                       const matriculaReceipt = isPaid ? findMatriculaReceipt(transactions, student) : null;
                       return (
