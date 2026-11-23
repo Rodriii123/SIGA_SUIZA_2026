@@ -904,7 +904,7 @@ export function StudentMaster() {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
 
-      if (!resAdmision.ok) throw new Error("No se pudo conectar con Admisión Piloto");
+      if (!resAdmision.ok) throw new Error(`No se pudo conectar con Admisión (HTTP ${resAdmision.status}).`);
       let admisionData = await resAdmision.json();
 
       if (!admisionData.admitidos || admisionData.admitidos.length === 0) {
@@ -923,11 +923,23 @@ export function StudentMaster() {
 
       if (resIngesta.ok) {
         const result = await resIngesta.json();
-        toast.success(`Sincronización exitosa. ${result.estudiantes_creados} nuevos estudiantes ingresados al Core.`);
+        const creados = result.estudiantes_creados ?? 0;
+        const omitidos = result.omitidos_count ?? (result.omitidos?.length ?? 0);
+        const duplicados = result.duplicados ?? 0;
+        let mensaje = `Sincronización exitosa. ${creados} nuevos estudiantes ingresados al Core.`;
+        if (duplicados) mensaje += ` ${duplicados} ya estaban registrados.`;
+        if (omitidos) mensaje += ` ${omitidos} omitidos por carrera no registrada en el catálogo.`;
+        toast.success(mensaje);
+        if (result.omitidos?.length) console.warn('Admitidos omitidos:', result.omitidos);
         await handleSearch('');
       } else {
         const err = await resIngesta.text();
-        toast.error(`Error en la ingesta: ${err}`);
+        let detalle = err;
+        try {
+          const parsed = JSON.parse(err);
+          detalle = parsed.detail || parsed.message || err;
+        } catch { /* la respuesta no es JSON */ }
+        toast.error(`Error en la ingesta (HTTP ${resIngesta.status}): ${detalle}`);
       }
     } catch (e) {
       console.error(e);

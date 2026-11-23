@@ -190,62 +190,77 @@ def _resolver_programa_id(programa_id, programa_nombre, programas):
     return id_oficial if id_oficial is not None else nombre_oficial
 
 
+def _clasificar_ingesta(admitidos, programas):
+    """
+    Separa los admitidos que pueden importarse usando únicamente el catálogo
+    oficial. Nunca inventa carreras: las que no existen se omiten con motivo.
+    """
+    validos = []
+    omitidos = []
+    dnis_vistos = set()
+
+    for admitido in admitidos:
+        dni = str(getattr(admitido, "dni", "") or "").strip()
+        programa_nombre = getattr(admitido, "programa_nombre", None)
+
+        if dni in dnis_vistos:
+            omitidos.append({
+                "dni": dni,
+                "programa": programa_nombre,
+                "motivo": "dni_duplicado_en_lista",
+            })
+            continue
+        dnis_vistos.add(dni)
+
+        programa_id = _resolver_programa_id(
+            getattr(admitido, "programa_id", None),
+            programa_nombre,
+            programas,
+        )
+
+        if programa_id is None:
+            omitidos.append({
+                "dni": dni,
+                "programa": programa_nombre,
+                "motivo": "programa_no_registrado",
+            })
+            continue
+
+        validos.append((admitido, programa_id))
+
+    return validos, omitidos
+
+
 @router.post("/admision/ingesta", status_code=status.HTTP_202_ACCEPTED)
 async def ingesta_admitidos(request: Request, data: IngestaMasivaRequest, db: AsyncSession = Depends(get_db)):
     """
-    Recibe estudiantes admitidos desde Admisión.
-    Verifica sus carreras y evita asignaciones incorrectas.
+    Recibe estudiantes admitidos desde Admisión e importa únicamente los que
+    pertenecen a carreras ya registradas en Gestión Académica. El resto se
+    omite y se reporta; un admitido con carrera desconocida no cancela la
+    importación de los válidos.
     """
-    estudiantes_creados = 0
-
-    # Consultar las carreras oficiales de SIGA
     programas = (
         await db.execute(
             text("SELECT id, nombre FROM programas_estudio")
         )
     ).mappings().all()
 
-    for admitido in data.admitidos:
+    validos, omitidos = _clasificar_ingesta(data.admitidos, programas)
 
-        # 1. Evitar registros duplicados por DNI
+    estudiantes_creados = 0
+    duplicados = []
+
+    for admitido, programa_id in validos:
         existing = await db.execute(
-            select(Estudiante).where(
-                Estudiante.dni == admitido.dni
-            )
+            select(Estudiante).where(Estudiante.dni == admitido.dni)
         )
-
         if existing.scalar_one_or_none():
+            duplicados.append(admitido.dni)
             continue
 
-        # 2. Resolver la carrera verdadera del estudiante
-        programa_id = _resolver_programa_id(
-            admitido.programa_id,
-            admitido.programa_nombre,
-            programas
-        )
-
-        # PROTECCIÓN NUEVA:
-        # No registrar estudiantes con carreras desconocidas
-        if programa_id is None:
-            await db.rollback()
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"No se puede importar al estudiante "
-                    f"con DNI {admitido.dni}. "
-                    "Su carrera no coincide con ningún "
-                    "programa de estudios registrado. "
-                    "Importación cancelada."
-                )
-            )
-
-        # 3. Generar código del estudiante
         year = datetime.now().year
-        codigo = f"{year}-{admitido.dni}"
-
-        # 4. Crear estudiante
         db_estudiante = Estudiante(
-            codigo_estudiante=codigo,
+            codigo_estudiante=f"{year}-{admitido.dni}",
             dni=admitido.dni,
             nombres=admitido.nombres,
             apellidos=admitido.apellidos,
@@ -255,11 +270,9 @@ async def ingesta_admitidos(request: Request, data: IngestaMasivaRequest, db: As
             modalidad_admision=admitido.modalidad,
             metadata_admision=admitido.metadata_completa
         )
-
         db.add(db_estudiante)
         await db.flush()
 
-        # 5. Crear evento para integración con otros módulos
         event_payload = {
             "event_id": str(uuid.uuid4()),
             "event_type": "gestion_academica.admision.estudiante_ingresado",
@@ -276,27 +289,25 @@ async def ingesta_admitidos(request: Request, data: IngestaMasivaRequest, db: As
                 "proceso_admision_id": data.proceso_admision_id
             },
             "metadata": {
-                "request_id": request.headers.get(
-                    "X-Request-ID", "unknown"
-                )
+                "request_id": request.headers.get("X-Request-ID", "unknown")
             }
         }
-
         db.add(
             OutboxEvent(
                 event_type=event_payload["event_type"],
                 payload=event_payload
             )
         )
-
         estudiantes_creados += 1
 
-    # 6. Confirmar los registros válidos
     await db.commit()
 
     return {
         "message": "Ingesta procesada",
-        "estudiantes_creados": estudiantes_creados
+        "estudiantes_creados": estudiantes_creados,
+        "duplicados": len(duplicados),
+        "omitidos_count": len(omitidos),
+        "omitidos": omitidos[:50],
     }
 
 @router.post("/estudiantes/", response_model=EstudianteResponse, status_code=status.HTTP_201_CREATED)

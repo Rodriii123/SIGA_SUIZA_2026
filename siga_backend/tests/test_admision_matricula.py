@@ -57,6 +57,7 @@ class AdmissionMatriculaTests(unittest.TestCase):
         helpers_routes = [
             _nodo(cls.arbol_routes, "_normalizar_programa"),
             _nodo(cls.arbol_routes, "_resolver_programa_id"),
+            _nodo(cls.arbol_routes, "_clasificar_ingesta"),
         ]
         cls.espacio_routes = {"unicodedata": unicodedata}
         exec(
@@ -150,7 +151,9 @@ class AdmissionMatriculaTests(unittest.TestCase):
     def test_ingesta_y_sync_no_tienen_or_1(self):
         ingesta = _fuente(self.arbol_routes, "ingesta_admitidos", self.codigo_routes)
         sync = _fuente(self.arbol_routes, "sincronizar_estudiantes_seccion", self.codigo_routes)
-        self.assertIn("_resolver_programa_id(", ingesta)
+        clasificar = _fuente(self.arbol_routes, "_clasificar_ingesta", self.codigo_routes)
+        self.assertIn("_clasificar_ingesta(", ingesta)
+        self.assertIn("_resolver_programa_id(", clasificar)
         self.assertNotIn(" or 1", ingesta)
         self.assertNotIn(" or 1", sync)
 
@@ -198,7 +201,54 @@ class AdmissionMatriculaTests(unittest.TestCase):
         self.assertIn("/api/mod-gestion-academica/admision/ingesta", codigo)
         self.assertIn("JSON.stringify(admisionData)", codigo)
         self.assertIn("result.estudiantes_creados", codigo)
+        self.assertIn("omitidos_count", codigo)
+        self.assertIn("resIngesta.status", codigo)
         self.assertNotIn("secretaria_prog@siga.edu", codigo)
+
+    def test_admision_y_gestion_lean_el_mismo_catalogo_oficial(self):
+        self.assertIn("SELECT id, nombre FROM programas_estudio", self.codigo_admision)
+        self.assertIn("SELECT id, nombre FROM programas_estudio", self.codigo_routes)
+
+    def test_ingesta_importa_validos_y_omite_programas_no_registrados(self):
+        clasificar = self.espacio_routes["_clasificar_ingesta"]
+        catalogo = [
+            {"id": 3, "nombre": "Desarrollo de Sistemas de Información"},
+            {"id": 4, "nombre": "Gestión Administrativa"},
+        ]
+        admitidos = [
+            types.SimpleNamespace(
+                dni="111", programa_id=None,
+                programa_nombre="Desarrollo de Sistemas de Información",
+            ),
+            types.SimpleNamespace(
+                dni="222", programa_id=None,
+                programa_nombre="Enfermería Técnica",
+            ),
+            types.SimpleNamespace(
+                dni="333", programa_id=4,
+                programa_nombre="Gestión Administrativa",
+            ),
+            types.SimpleNamespace(
+                dni="111", programa_id=3,
+                programa_nombre="Desarrollo de Sistemas de Información",
+            ),
+        ]
+
+        validos, omitidos = clasificar(admitidos, catalogo)
+
+        self.assertEqual([a.dni for a, _ in validos], ["111", "333"])
+        self.assertEqual([pid for _, pid in validos], [3, 4])
+        self.assertEqual(
+            [(o["dni"], o["motivo"]) for o in omitidos],
+            [("222", "programa_no_registrado"), ("111", "dni_duplicado_en_lista")],
+        )
+
+    def test_ingesta_no_cancela_todo_por_un_programa_desconocido(self):
+        ingesta = _fuente(self.arbol_routes, "ingesta_admitidos", self.codigo_routes)
+        self.assertIn("_clasificar_ingesta(", ingesta)
+        self.assertIn("omitidos_count", ingesta)
+        self.assertNotIn("raise HTTPException(", ingesta)
+        self.assertNotIn("await db.rollback()", ingesta)
 
 
 if __name__ == "__main__":
