@@ -5,7 +5,7 @@ from sqlalchemy.pool import NullPool
 import os
 import sys
 from datetime import datetime
-from sqlalchemy import Column, Integer, DateTime, String, JSON, Boolean
+from sqlalchemy import Column, Integer, DateTime, String, JSON, Boolean, text
 
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = os.getenv("DB_PORT", "5432")
@@ -65,6 +65,13 @@ async def init_db():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all, checkfirst=True)
+            # Migración aditiva: no elimina ni reescribe información existente.
+            await conn.execute(text(
+                "ALTER TABLE periodos_academicos ADD COLUMN IF NOT EXISTS nombre VARCHAR(120)"
+            ))
+            await conn.execute(text(
+                "UPDATE periodos_academicos SET nombre = codigo WHERE nombre IS NULL OR nombre = ''"
+            ))
         print("Tablas creadas/verificadas")
     except Exception as e:
         print(f"init_db: tablas ya existen o error menor: {e}")

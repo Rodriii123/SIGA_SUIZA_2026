@@ -26,6 +26,7 @@ class PeriodoAcademico(BaseModel):
     __tablename__ = "periodos_academicos"
 
     codigo = Column(String(20), unique=True, nullable=False) # Ej: 2024-I
+    nombre = Column(String(120), nullable=True) # Ej: Primer Semestre 2026; si falta, se muestra el código
     fecha_inicio = Column(TIMESTAMP, nullable=False)
     fecha_fin = Column(TIMESTAMP, nullable=False)
     estado = Column(String(20), default="planificacion") # planificacion, matricula_abierta, en_curso, cerrado

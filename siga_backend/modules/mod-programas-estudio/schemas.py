@@ -161,6 +161,7 @@ class ProgramaResponse(ProgramaBase):
 
 class PeriodoBase(BaseModel):
     codigo: str
+    nombre: Optional[str] = None
     fecha_inicio: datetime
     fecha_fin: datetime
     estado: str = "planificacion"
@@ -170,11 +171,20 @@ class PeriodoBase(BaseModel):
 class PeriodoCreate(PeriodoBase):
     pass
 
+class PeriodoUpdate(BaseModel):
+    codigo: str
+    nombre: Optional[str] = None
+    fecha_inicio: datetime
+    fecha_fin: datetime
+    fecha_fin_matricula_regular: datetime
+    fecha_fin_matricula_extemporanea: datetime
+    estado: str
+
 class PeriodoResponse(PeriodoBase):
     id: int
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    nombre: Optional[str] = None
+    relaciones: Optional[dict] = None
     model_config = ConfigDict(from_attributes=True)
 
     @model_validator(mode="after")

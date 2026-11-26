@@ -12,6 +12,14 @@ from shared.identity import (
 from schemas import (
     SilaboUpdate, PlanTrabajoDocenteUpdate, CargaLectivaUpdate, HorarioPeriodoUpdate
 )
+from period_rules import (
+    ESTADOS_PERIODO_VALIDOS,
+    ROLES_GESTION_PERIODOS,
+    ValidacionPeriodoError,
+    limpiar_fechas_periodo,
+    normalizar_codigo_periodo,
+    validar_datos_periodo,
+)
 
 router = APIRouter()
 
@@ -38,6 +46,7 @@ class ProgramaResponse(ProgramaBase):
 # Schemas Periodo Academico
 class PeriodoBase(BaseModel):
     codigo: str
+    nombre: Optional[str] = None
     fecha_inicio: datetime
     fecha_fin: datetime
     estado: str = "planificacion"
@@ -47,11 +56,20 @@ class PeriodoBase(BaseModel):
 class PeriodoCreate(PeriodoBase):
     pass
 
+class PeriodoUpdate(BaseModel):
+    codigo: str
+    nombre: Optional[str] = None
+    fecha_inicio: datetime
+    fecha_fin: datetime
+    fecha_fin_matricula_regular: datetime
+    fecha_fin_matricula_extemporanea: datetime
+    estado: str
+
 class PeriodoResponse(PeriodoBase):
     id: int
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    nombre: Optional[str] = None
+    relaciones: Optional[dict] = None
     model_config = ConfigDict(from_attributes=True)
 
     @model_validator(mode="after")
@@ -59,6 +77,46 @@ class PeriodoResponse(PeriodoBase):
         if not self.nombre:
             self.nombre = self.codigo
         return self
+
+
+def validar_o_http(datos: dict) -> None:
+    """Traduce las reglas puras a errores HTTP 422 del endpoint."""
+    try:
+        validar_datos_periodo(datos)
+    except ValidacionPeriodoError as e:
+        raise HTTPException(status_code=422, detail=e.detail) from e
+
+
+async def verificar_permiso_escritura_periodos(request: Request, db: AsyncSession) -> None:
+    ident = await get_identity(request, db)
+    roles_permitidos = set(ident.roles or []) & ROLES_GESTION_PERIODOS
+    if not (es_superadmin(ident) or roles_permitidos):
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene permisos para crear o editar periodos lectivos"
+        )
+
+
+async def contar_relaciones_periodo(db: AsyncSession, periodo_id: int) -> dict:
+    """ Cuenta los registros que dependen del periodo sin modificarlos. """
+    consultas = {
+        "matriculas": "SELECT COUNT(*) FROM matriculas WHERE periodo_id = :pid",
+        "notas": "SELECT COUNT(*) FROM evaluacion_registros WHERE periodo_id = :pid",
+        "carga_lectiva": "SELECT COUNT(*) FROM carga_lectiva WHERE periodo_id = :pid",
+        "planes_trabajo": "SELECT COUNT(*) FROM planes_trabajo_docente WHERE periodo_id = :pid",
+        "tutorias": "SELECT COUNT(*) FROM tutorias WHERE periodo_id = :pid",
+        "horarios": "SELECT COUNT(*) FROM horarios_periodo WHERE periodo_id = :pid",
+    }
+    conteos = {}
+    for clave, consulta in consultas.items():
+        try:
+            resultado = await db.execute(text(consulta), {"pid": periodo_id})
+            conteos[clave] = int(resultado.scalar() or 0)
+        except Exception:
+            # Un módulo desplegado por separado puede no tener aún esa tabla.
+            conteos[clave] = 0
+    conteos["total"] = sum(conteos.values())
+    return conteos
 
 # Health Check
 @router.get("/health")
@@ -106,11 +164,19 @@ async def crear_programa(programa: ProgramaCreate, request: Request, db: AsyncSe
 # Endpoints Periodos Academicos
 @router.post("/periodos", response_model=PeriodoResponse, status_code=status.HTTP_201_CREATED)
 async def crear_periodo(periodo: PeriodoCreate, request: Request, db: AsyncSession = Depends(get_db)):
-    data = periodo.model_dump()
-    for key in ['fecha_inicio', 'fecha_fin', 'fecha_fin_matricula_regular', 'fecha_fin_matricula_extemporanea']:
-        if data.get(key) and getattr(data[key], 'tzinfo', None):
-            data[key] = data[key].replace(tzinfo=None)
-            
+    await verificar_permiso_escritura_periodos(request, db)
+
+    data = limpiar_fechas_periodo(periodo.model_dump())
+    data["codigo"] = normalizar_codigo_periodo(data.get("codigo"))
+    data["nombre"] = str(data.get("nombre") or "").strip() or data["codigo"]
+    validar_o_http(data)
+
+    duplicado = await db.execute(
+        select(PeriodoAcademico.id).where(func.upper(PeriodoAcademico.codigo) == data["codigo"])
+    )
+    if duplicado.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail=f"Ya existe un periodo con el código '{data['codigo']}'")
+
     db_periodo = PeriodoAcademico(**data)
     db.add(db_periodo)
     await db.flush()
@@ -121,6 +187,7 @@ async def crear_periodo(periodo: PeriodoCreate, request: Request, db: AsyncSessi
         payload={
             "id": db_periodo.id,
             "codigo": db_periodo.codigo,
+            "nombre": db_periodo.nombre,
             "estado": db_periodo.estado,
             "metadata": {"request_id": request_id}
         }
@@ -133,22 +200,99 @@ async def crear_periodo(periodo: PeriodoCreate, request: Request, db: AsyncSessi
 @router.get("/periodos", response_model=List[PeriodoResponse])
 async def obtener_periodos(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(PeriodoAcademico).order_by(PeriodoAcademico.fecha_inicio.desc()))
-    return result.scalars().all()
+    periodos = []
+    for db_periodo in result.scalars().all():
+        respuesta = PeriodoResponse.model_validate(db_periodo)
+        respuesta.relaciones = await contar_relaciones_periodo(db, db_periodo.id)
+        periodos.append(respuesta)
+    return periodos
 
-@router.put("/periodos/{periodo_id}/estado", response_model=PeriodoResponse)
-async def actualizar_estado_periodo(periodo_id: int, estado: str, request: Request, db: AsyncSession = Depends(get_db)):
+@router.put("/periodos/{periodo_id}", response_model=PeriodoResponse)
+async def actualizar_periodo(
+    periodo_id: int,
+    periodo: PeriodoUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """ Edición completa y segura de un periodo lectivo (sin tocar sus relaciones). """
+    await verificar_permiso_escritura_periodos(request, db)
+
     result = await db.execute(select(PeriodoAcademico).where(PeriodoAcademico.id == periodo_id))
     db_periodo = result.scalar_one_or_none()
     if not db_periodo:
         raise HTTPException(status_code=404, detail="Periodo no encontrado")
-        
+
+    data = limpiar_fechas_periodo(periodo.model_dump())
+    data["codigo"] = normalizar_codigo_periodo(data.get("codigo"))
+    data["nombre"] = str(data.get("nombre") or "").strip() or data["codigo"]
+    validar_o_http(data)
+
+    duplicado = await db.execute(
+        select(PeriodoAcademico.id).where(
+            func.upper(PeriodoAcademico.codigo) == data["codigo"],
+            PeriodoAcademico.id != periodo_id
+        )
+    )
+    if duplicado.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail=f"Ya existe un periodo con el código '{data['codigo']}'")
+
+    relaciones = await contar_relaciones_periodo(db, periodo_id)
+    if relaciones["total"] > 0 and data["codigo"] != normalizar_codigo_periodo(db_periodo.codigo):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No se puede cambiar el código de un periodo con matrículas, notas o carga lectiva vinculadas. "
+                "Puede editar el nombre, las fechas y el estado sin afectar esas relaciones."
+            )
+        )
+
+    estado_anterior = db_periodo.estado
+    codigo_anterior = db_periodo.codigo
+    for clave, valor in data.items():
+        setattr(db_periodo, clave, valor)
+
+    event = OutboxEvent(
+        event_type="periodo.actualizado",
+        payload={
+            "id": db_periodo.id,
+            "codigo_anterior": codigo_anterior,
+            "codigo_nuevo": db_periodo.codigo,
+            "nombre": db_periodo.nombre,
+            "estado_anterior": estado_anterior,
+            "estado_nuevo": db_periodo.estado,
+            "metadata": {"request_id": request.headers.get("X-Request-ID", "unknown")}
+        }
+    )
+    db.add(event)
+    await db.commit()
+    await db.refresh(db_periodo)
+
+    respuesta = PeriodoResponse.model_validate(db_periodo)
+    respuesta.relaciones = relaciones
+    return respuesta
+
+@router.put("/periodos/{periodo_id}/estado", response_model=PeriodoResponse)
+async def actualizar_estado_periodo(periodo_id: int, estado: str, request: Request, db: AsyncSession = Depends(get_db)):
+    await verificar_permiso_escritura_periodos(request, db)
+
+    estado = str(estado or "").strip().lower()
+    if estado not in ESTADOS_PERIODO_VALIDOS:
+        raise HTTPException(status_code=422, detail=f"Estado de periodo no válido: {estado or '(vacío)'}")
+
+    result = await db.execute(select(PeriodoAcademico).where(PeriodoAcademico.id == periodo_id))
+    db_periodo = result.scalar_one_or_none()
+    if not db_periodo:
+        raise HTTPException(status_code=404, detail="Periodo no encontrado")
+
+    estado_anterior = db_periodo.estado
     db_periodo.estado = estado
-    
+
     event = OutboxEvent(
         event_type="periodo.estado_actualizado",
         payload={
             "id": db_periodo.id,
             "codigo": db_periodo.codigo,
+            "estado_anterior": estado_anterior,
             "nuevo_estado": estado,
             "metadata": {"request_id": request.headers.get("X-Request-ID", "unknown")}
         }
@@ -156,7 +300,10 @@ async def actualizar_estado_periodo(periodo_id: int, estado: str, request: Reque
     db.add(event)
     await db.commit()
     await db.refresh(db_periodo)
-    return db_periodo
+
+    respuesta = PeriodoResponse.model_validate(db_periodo)
+    respuesta.relaciones = await contar_relaciones_periodo(db, db_periodo.id)
+    return respuesta
 
 @router.get("/programas", response_model=List[ProgramaResponse])
 async def obtener_programas(db: AsyncSession = Depends(get_db)):

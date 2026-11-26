@@ -134,7 +134,9 @@ export function AcademicDashboard() {
     }
   };
 
+  // La carga inicial es una sincronización deliberada con el API.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData();
   }, []);
 
@@ -203,6 +205,7 @@ export function AcademicDashboard() {
 
   // Reset page when filter changes
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrentPage(1);
   }, [searchTerm, filterEstado, filterModalidad, filterArea, viewMode]);
 
@@ -665,7 +668,7 @@ export function AcademicDashboard() {
               </span>
             </div>
             <div className="text-3xl font-extrabold text-white tracking-tight">
-              {periods.find(p => p.estado?.toLowerCase() === 'activo' || p.estado?.toLowerCase() === 'en_curso')?.codigo || '2026-I'}
+              {periods.find(p => ['activo', 'matricula_abierta', 'en_curso'].includes(String(p.estado ?? '').toLowerCase()))?.codigo || 'Sin periodo activo'}
             </div>
             <div className="text-xs font-semibold text-blue-200 mt-1">
               Semestre Académico Vigente
@@ -728,11 +731,14 @@ export function AcademicDashboard() {
                       className="p-3 rounded-xl bg-slate-50/70 border border-slate-200/60 flex justify-between items-center transition-all hover:bg-slate-50 hover:border-slate-300/80"
                     >
                       <div>
-                        <span className="font-bold text-xs text-slate-800 tracking-tight block">
+                        <span className="font-bold text-xs text-slate-800 tracking-tight block truncate">
                           {period.codigo}
                         </span>
-                        <span className="text-[10px] text-slate-400">
-                          {period.fecha_inicio ? new Date(period.fecha_inicio).getFullYear() : '2026'}
+                        {period.nombre && period.nombre !== period.codigo && (
+                          <span className="text-[10px] text-slate-500 block truncate">{period.nombre}</span>
+                        )}
+                        <span className="text-[10px] text-slate-400 block">
+                          {String(period.fecha_inicio ?? '').slice(0, 4) || 'Sin fecha'}
                         </span>
                       </div>
                       
