@@ -1072,8 +1072,16 @@ async def obtener_matriculas_estudiante(estudiante_id: int, db: AsyncSession = D
 
 @router.get("/matriculas/unidad/{unidad_id}/periodo/{periodo_id}")
 async def obtener_estudiantes_por_unidad(unidad_id: int, periodo_id: int, db: AsyncSession = Depends(get_db)):
+    # La nómina se deriva siempre de matrículas reales. No se matricula por
+    # pertenencia al programa/ciclo y no se sincroniza nada manualmente.
     query = (
-        select(Estudiante, MatriculaDetalle.id.label("matricula_detalle_id"))
+        select(
+            Estudiante,
+            Matricula.id.label("matricula_id"),
+            Matricula.estado_matricula.label("estado_matricula"),
+            MatriculaDetalle.id.label("matricula_detalle_id"),
+            MatriculaDetalle.estado_curso.label("estado_curso"),
+        )
         .join(Matricula, Matricula.estudiante_id == Estudiante.id)
         .join(MatriculaDetalle, MatriculaDetalle.matricula_id == Matricula.id)
         .where(Matricula.periodo_id == periodo_id)
@@ -1084,9 +1092,12 @@ async def obtener_estudiantes_por_unidad(unidad_id: int, periodo_id: int, db: As
     rows = result.all()
 
     response = []
-    for est, det_id in rows:
+    for est, mat_id, estado_matricula, det_id, estado_curso in rows:
         est_dict = EstudianteResponse.model_validate(est).model_dump()
+        est_dict["matricula_id"] = mat_id
+        est_dict["estado_matricula"] = estado_matricula
         est_dict["matricula_detalle_id"] = det_id
+        est_dict["estado_curso"] = estado_curso
         response.append(est_dict)
 
     return response

@@ -28,10 +28,10 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
   it('1. Debe renderizar la lista de estudiantes con notas cuando la API responde exitosamente', async () => {
     apiClient.request.mockImplementation((endpoint) => {
-      if (endpoint.includes('/programas-estudio/programas') && !endpoint.includes('/malla')) {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
         return Promise.resolve([{ id: 1, nombre: 'Desarrollo de Sistemas de Información' }]);
       }
-      if (endpoint.includes('/programas-estudio/periodos')) {
+      if (endpoint.includes('programas-estudio/periodos')) {
         return Promise.resolve([{ id: 1, codigo: '2026-I' }]);
       }
       if (endpoint.includes('/carga-lectiva')) {
@@ -60,7 +60,7 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
     // Esperar a que la unidad didáctica cargue en el select
     await screen.findByText('Taller de Programación Web');
-    const selectUnit = screen.getByRole('combobox');
+    const selectUnit = screen.getByLabelText(/unidad didáctica a evaluar/i);
     fireEvent.change(selectUnit, { target: { value: '101' } });
 
     // Verificar que los estudiantes se renderizan en la nómina
@@ -91,10 +91,10 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
   it('3. Una nota fuera de rango (ej. 25 o -1) no actualiza el estado y no envía la petición a la API', async () => {
     apiClient.request.mockImplementation((endpoint) => {
-      if (endpoint.includes('/programas-estudio/programas') && !endpoint.includes('/malla')) {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
         return Promise.resolve([{ id: 1, nombre: 'DSI' }]);
       }
-      if (endpoint.includes('/programas-estudio/periodos')) {
+      if (endpoint.includes('programas-estudio/periodos')) {
         return Promise.resolve([{ id: 1, codigo: '2026-I' }]);
       }
       if (endpoint.includes('/carga-lectiva')) {
@@ -121,7 +121,7 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
     render(<EvaluationDashboard />);
 
     await screen.findByText('Taller Web');
-    const selectUnit = screen.getByRole('combobox');
+    const selectUnit = screen.getByLabelText(/unidad didáctica a evaluar/i);
     fireEvent.change(selectUnit, { target: { value: '101' } });
 
     await waitFor(() => {
@@ -152,10 +152,10 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
   it('4. [BUG-D10] Debe mostrar un mensaje de error visual cuando se ingresa una nota fuera de rango', async () => {
     // BUG-D10: EvaluationDashboard actualmente ignora en silencio las notas inválidas sin mostrar ningún mensaje de advertencia o feedback al usuario
     apiClient.request.mockImplementation((endpoint) => {
-      if (endpoint.includes('/programas-estudio/programas') && !endpoint.includes('/malla')) {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
         return Promise.resolve([{ id: 1, nombre: 'DSI' }]);
       }
-      if (endpoint.includes('/programas-estudio/periodos')) {
+      if (endpoint.includes('programas-estudio/periodos')) {
         return Promise.resolve([{ id: 1, codigo: '2026-I' }]);
       }
       if (endpoint.includes('/carga-lectiva')) {
@@ -176,7 +176,7 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
     render(<EvaluationDashboard />);
     await screen.findByText('Taller Web');
-    const selectUnit = screen.getByRole('combobox');
+    const selectUnit = screen.getByLabelText(/unidad didáctica a evaluar/i);
     fireEvent.change(selectUnit, { target: { value: '101' } });
 
     await waitFor(() => {
@@ -192,10 +192,10 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
   it('5. DocentePlanning se renderiza y muestra opciones de subida de sílabos y planes', async () => {
     apiClient.request.mockImplementation((endpoint) => {
-      if (endpoint.includes('/programas-estudio/programas') && !endpoint.includes('/malla')) {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
         return Promise.resolve([{ id: 1, nombre: 'DSI' }]);
       }
-      if (endpoint.includes('/programas-estudio/periodos')) {
+      if (endpoint.includes('programas-estudio/periodos')) {
         return Promise.resolve([{ id: 1, codigo: '2026-I' }]);
       }
       if (endpoint.includes('/carga-lectiva')) {
@@ -252,10 +252,10 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
     const fechaLimiteEsp = `${d}/${m}/${y}`;
 
     apiClient.request.mockImplementation((endpoint) => {
-      if (endpoint.includes('/programas-estudio/programas') && !endpoint.includes('/malla')) {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
         return Promise.resolve([{ id: 1, nombre: 'DSI' }]);
       }
-      if (endpoint.includes('/programas-estudio/periodos')) {
+      if (endpoint.includes('programas-estudio/periodos')) {
         return Promise.resolve([{ id: 1, codigo: '2026-I' }]);
       }
       if (endpoint.includes('/carga-lectiva')) {
@@ -285,7 +285,7 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
     render(<EvaluationDashboard />);
     await screen.findByText('Taller Web');
-    const selectUnit = screen.getByRole('combobox');
+    const selectUnit = screen.getByLabelText(/unidad didáctica a evaluar/i);
     fireEvent.change(selectUnit, { target: { value: '101' } });
 
     await waitFor(() => {
@@ -300,10 +300,10 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
   it('8. [PASO 1] Banner de acta cerrada con motivo de bloqueo e inputs en read-only / deshabilitados', async () => {
     apiClient.request.mockImplementation((endpoint) => {
-      if (endpoint.includes('/programas-estudio/programas') && !endpoint.includes('/malla')) {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
         return Promise.resolve([{ id: 1, nombre: 'DSI' }]);
       }
-      if (endpoint.includes('/programas-estudio/periodos')) {
+      if (endpoint.includes('programas-estudio/periodos')) {
         return Promise.resolve([{ id: 1, codigo: '2026-I' }]);
       }
       if (endpoint.includes('/carga-lectiva')) {
@@ -333,7 +333,7 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
     render(<EvaluationDashboard />);
     await screen.findByText('Taller Web');
-    const selectUnit = screen.getByRole('combobox');
+    const selectUnit = screen.getByLabelText(/unidad didáctica a evaluar/i);
     fireEvent.change(selectUnit, { target: { value: '101' } });
 
     await waitFor(() => {
@@ -355,10 +355,10 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
   it('9. [PASO 1] Unidad sin carga muestra mensaje "Esta unidad no tiene docente asignado..." en read-only', async () => {
     apiClient.request.mockImplementation((endpoint) => {
-      if (endpoint.includes('/programas-estudio/programas') && !endpoint.includes('/malla')) {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
         return Promise.resolve([{ id: 1, nombre: 'DSI' }]);
       }
-      if (endpoint.includes('/programas-estudio/periodos')) {
+      if (endpoint.includes('programas-estudio/periodos')) {
         return Promise.resolve([{ id: 1, codigo: '2026-I' }]);
       }
       if (endpoint.includes('/carga-lectiva')) {
@@ -388,7 +388,7 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
     render(<EvaluationDashboard />);
     await screen.findByText('Taller Web');
-    const selectUnit = screen.getByRole('combobox');
+    const selectUnit = screen.getByLabelText(/unidad didáctica a evaluar/i);
     fireEvent.change(selectUnit, { target: { value: '101' } });
 
     await waitFor(() => {
@@ -402,10 +402,10 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
   it('10. [PASO 2] Error 409 al guardar muestra el detail del backend y no pierde notas ingresadas', async () => {
     apiClient.request.mockImplementation((endpoint, options) => {
-      if (endpoint.includes('/programas-estudio/programas') && !endpoint.includes('/malla')) {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
         return Promise.resolve([{ id: 1, nombre: 'DSI' }]);
       }
-      if (endpoint.includes('/programas-estudio/periodos')) {
+      if (endpoint.includes('programas-estudio/periodos')) {
         return Promise.resolve([{ id: 1, codigo: '2026-I' }]);
       }
       if (endpoint.includes('/carga-lectiva')) {
@@ -441,7 +441,7 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
     render(<EvaluationDashboard />);
     await screen.findByText('Taller Web');
-    const selectUnit = screen.getByRole('combobox');
+    const selectUnit = screen.getByLabelText(/unidad didáctica a evaluar/i);
     fireEvent.change(selectUnit, { target: { value: '101' } });
 
     await waitFor(() => {
@@ -471,10 +471,10 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
   it('11. [PASO 3] Botón "Vista previa del acta" y modal con marca de agua cuando no está cerrada', async () => {
     apiClient.request.mockImplementation((endpoint) => {
-      if (endpoint.includes('/programas-estudio/programas') && !endpoint.includes('/malla')) {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
         return Promise.resolve([{ id: 1, nombre: 'DSI' }]);
       }
-      if (endpoint.includes('/programas-estudio/periodos')) {
+      if (endpoint.includes('programas-estudio/periodos')) {
         return Promise.resolve([{ id: 1, codigo: '2026-I' }]);
       }
       if (endpoint.includes('/carga-lectiva')) {
@@ -504,7 +504,7 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
     render(<EvaluationDashboard />);
     await screen.findByText('Taller Web');
-    const selectUnit = screen.getByRole('combobox');
+    const selectUnit = screen.getByLabelText(/unidad didáctica a evaluar/i);
     fireEvent.change(selectUnit, { target: { value: '101' } });
 
     // Esperar a que la nómina de estudiantes cargue y habilite el botón
@@ -522,10 +522,10 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
   it('12. [PASO 3] Botón "Acta oficial" y modal oficial con fecha/hora de cierre en Lima cuando está cerrada', async () => {
     apiClient.request.mockImplementation((endpoint) => {
-      if (endpoint.includes('/programas-estudio/programas') && !endpoint.includes('/malla')) {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
         return Promise.resolve([{ id: 1, nombre: 'DSI' }]);
       }
-      if (endpoint.includes('/programas-estudio/periodos')) {
+      if (endpoint.includes('programas-estudio/periodos')) {
         return Promise.resolve([{ id: 1, codigo: '2026-I' }]);
       }
       if (endpoint.includes('/carga-lectiva')) {
@@ -556,7 +556,7 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
 
     render(<EvaluationDashboard />);
     await screen.findByText('Taller Web');
-    const selectUnit = screen.getByRole('combobox');
+    const selectUnit = screen.getByLabelText(/unidad didáctica a evaluar/i);
     fireEvent.change(selectUnit, { target: { value: '101' } });
 
     // Esperar a que la nómina de estudiantes cargue y habilite el botón
@@ -584,10 +584,10 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
           archivo_url: '/docs/silabos/mi_silabo.pdf'
         });
       }
-      if (endpoint.includes('/programas-estudio/programas') && !endpoint.includes('/malla')) {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
         return Promise.resolve([{ id: 1, nombre: 'DSI' }]);
       }
-      if (endpoint.includes('/programas-estudio/periodos')) {
+      if (endpoint.includes('programas-estudio/periodos')) {
         return Promise.resolve([{ id: 1, codigo: '2026-I', estado: 'abierto' }]);
       }
       if (endpoint.includes('/carga-lectiva')) {
@@ -655,10 +655,10 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
           archivo_url: '/docs/planes/plan_anual.pdf'
         });
       }
-      if (endpoint.includes('/programas-estudio/programas') && !endpoint.includes('/malla')) {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
         return Promise.resolve([{ id: 1, nombre: 'DSI' }]);
       }
-      if (endpoint.includes('/programas-estudio/periodos')) {
+      if (endpoint.includes('programas-estudio/periodos')) {
         return Promise.resolve([{ id: 1, codigo: '2026-I', estado: 'abierto' }]);
       }
       if (endpoint.includes('/carga-lectiva')) {
@@ -713,5 +713,133 @@ describe('Auditoría Frontend - Rol Docente (EvaluationDashboard & DocentePlanni
     });
     expect(await screen.findByTestId('toast-success')).toBeInTheDocument();
     expect(screen.getByText('Plan de Trabajo enviado correctamente al Coordinador')).toBeInTheDocument();
+  });
+
+  it('15. Docente ve primero el período vigente con carga (2027-I) y solo sus cursos', async () => {
+    apiClient.request.mockImplementation((endpoint) => {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
+        return Promise.resolve([{ id: 1, nombre: 'Desarrollo de Sistemas de Información' }]);
+      }
+      if (endpoint.includes('programas-estudio/periodos')) {
+        return Promise.resolve([
+          { id: 1, codigo: '2026-I', estado: 'historico', fecha_inicio: '2026-05-14T00:00:00' },
+          { id: 3, codigo: '2027-I', estado: 'matricula_abierta', fecha_inicio: '2027-04-05T00:00:00' }
+        ]);
+      }
+      if (endpoint.includes('/carga-lectiva')) {
+        return Promise.resolve([
+          { id: 1, programa_id: 1, periodo_id: 1, unidad_didactica_id: 101 },
+          { id: 9, programa_id: 1, periodo_id: 3, unidad_didactica_id: 102 }
+        ]);
+      }
+      if (endpoint.includes('/malla')) {
+        return Promise.resolve([{
+          id: 1,
+          nombre: 'Módulo 1',
+          periodo: 1,
+          unidades: [
+            { id: 101, nombre: 'Lenguaje de programación' },
+            { id: 102, nombre: 'Animación gráfica' },
+            { id: 999, nombre: 'Curso de otro docente' }
+          ]
+        }]);
+      }
+      if (endpoint.includes('/matriculas/unidad/102/periodo/3')) {
+        return Promise.resolve([{ id: 201, matricula_detalle_id: 82, nombres: 'Ana', apellidos: 'Pérez', estado_matricula: 'confirmada' }]);
+      }
+      if (endpoint.includes('/actas/unidad/102/periodo/3')) {
+        return Promise.resolve({ tiene_carga: true, acta_cerrada: false, editable: true, motivo_bloqueo: null });
+      }
+      if (endpoint.includes('/matriculas/unidad/101/periodo/1')) {
+        return Promise.resolve([{ id: 100, matricula_detalle_id: 80, nombres: 'Luis', apellidos: 'Ruiz', estado_matricula: 'confirmada' }]);
+      }
+      if (endpoint.includes('/actas/unidad/101/periodo/1')) {
+        return Promise.resolve({ tiene_carga: true, acta_cerrada: false, editable: true, motivo_bloqueo: null });
+      }
+      return Promise.resolve([]);
+    });
+
+    render(<EvaluationDashboard />);
+
+    const selectPeriod = await screen.findByLabelText(/periodo lectivo/i);
+    await waitFor(() => expect(selectPeriod).toHaveValue('3'));
+
+    const selectUnit = screen.getByLabelText(/unidad didáctica a evaluar/i);
+    expect(selectUnit).toHaveTextContent('Animación gráfica');
+    expect(selectUnit).not.toHaveTextContent('Lenguaje de programación');
+    expect(selectUnit).not.toHaveTextContent('Curso de otro docente');
+
+    fireEvent.change(selectPeriod, { target: { value: '1' } });
+
+    await waitFor(() => expect(selectUnit).toHaveTextContent('Lenguaje de programación'));
+    expect(selectUnit).not.toHaveTextContent('Animación gráfica');
+    expect(selectUnit).not.toHaveTextContent('Curso de otro docente');
+  });
+
+  it('16. Muestra matrículas pendientes sin ocultarlas, pero no permite calificarlas ni duplica notas', async () => {
+    apiClient.request.mockImplementation((endpoint, options) => {
+      if (endpoint.includes('programas-estudio/programas') && !endpoint.includes('/malla')) {
+        return Promise.resolve([{ id: 1, nombre: 'DSI' }]);
+      }
+      if (endpoint.includes('programas-estudio/periodos')) {
+        return Promise.resolve([{ id: 1, codigo: '2027-I', estado: 'matricula_abierta', fecha_inicio: '2027-04-05T00:00:00' }]);
+      }
+      if (endpoint.includes('/carga-lectiva')) {
+        return Promise.resolve([{ id: 1, programa_id: 1, periodo_id: 1, unidad_didactica_id: 101 }]);
+      }
+      if (endpoint.includes('/malla')) {
+        return Promise.resolve([{ id: 1, nombre: 'Módulo 1', periodo: 1, unidades: [{ id: 101, nombre: 'Taller Web' }] }]);
+      }
+      if (endpoint.includes('/matriculas/unidad/101/periodo/1')) {
+        return Promise.resolve([
+          { id: 100, matricula_detalle_id: 80, nombres: 'Confirmado', apellidos: 'Alumno', estado_matricula: 'confirmada', estado_curso: 'cursando' },
+          { id: 101, matricula_detalle_id: 81, nombres: 'Pendiente', apellidos: 'Alumno', estado_matricula: 'pendiente', estado_curso: 'cursando' }
+        ]);
+      }
+      if (endpoint.includes('/actas/unidad/101/periodo/1')) {
+        return Promise.resolve({ tiene_carga: true, acta_cerrada: false, editable: true, motivo_bloqueo: null });
+      }
+      if (endpoint === '/api/mod-evaluacion/registros' && options?.method === 'POST') {
+        return Promise.resolve({ id: 300, nota_final: 18 });
+      }
+      return Promise.resolve([]);
+    });
+
+    render(<EvaluationDashboard />);
+
+    await screen.findByText('Taller Web');
+    fireEvent.change(screen.getByLabelText(/unidad didáctica a evaluar/i), { target: { value: '101' } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Alumno, Confirmado/i)).toBeInTheDocument();
+      expect(screen.getByText(/Alumno, Pendiente/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Matrícula confirmada')).toBeInTheDocument();
+    expect(screen.getByText('Matrícula pendiente')).toBeInTheDocument();
+
+    const inputs = screen.getAllByRole('textbox');
+    expect(inputs).toHaveLength(2);
+    const inputConfirmado = inputs.find((input) => input.value === '' && !input.disabled);
+    const inputPendiente = inputs.find((input) => input.disabled);
+    expect(inputConfirmado).toBeDefined();
+    expect(inputPendiente).toBeDefined();
+
+    fireEvent.change(inputConfirmado, { target: { value: '18' } });
+    fireEvent.click(screen.getByRole('button', { name: /Guardar Promedios/i }));
+
+    await waitFor(() => {
+      const posts = apiClient.request.mock.calls.filter(
+        ([url, opts]) => url === '/api/mod-evaluacion/registros' && opts?.method === 'POST'
+      );
+      expect(posts).toHaveLength(1);
+      expect(JSON.parse(posts[0][1].body)).toEqual(expect.objectContaining({
+        matricula_detalle_id: 80,
+        nota_final: 18
+      }));
+    });
+
+    const sincronizaciones = apiClient.request.mock.calls.filter(([url]) => /sincronizar/i.test(url));
+    expect(sincronizaciones).toHaveLength(0);
   });
 });

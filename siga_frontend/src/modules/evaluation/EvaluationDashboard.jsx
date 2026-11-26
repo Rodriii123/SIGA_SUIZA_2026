@@ -114,6 +114,60 @@ function mapSaveError(error) {
   return errorText;
 }
 
+// Los mismos estados que habilitan calificación en mod-evaluacion.
+const ESTADOS_PERIODO_CALIFICABLES = new Set(['en_curso', 'matricula_abierta']);
+const PRIORIDAD_ESTADO_PERIODO = { en_curso: 0, matricula_abierta: 1 };
+
+/**
+ * Elige la carga inicial del docente:
+ * 1) solo períodos en los que realmente tiene carga lectiva;
+ * 2) prefiere un período calificable (en_curso antes que matricula_abierta);
+ * 3) entre ellos, el de fecha de inicio más reciente.
+ * Así 2027-I gana sobre 2026-I histórico sin depender del orden de inserción.
+ */
+function elegirCargaInicial(loadRes, perRes) {
+  const cargas = Array.isArray(loadRes) ? loadRes : [];
+  if (cargas.length === 0) return null;
+
+  const periodosPorId = new Map(
+    (Array.isArray(perRes) ? perRes : []).map(p => [Number(p.id), p])
+  );
+
+  const candidatas = cargas
+    .map(carga => ({ carga, periodo: periodosPorId.get(Number(carga.periodo_id)) }))
+    .filter(item => item.periodo);
+
+  if (candidatas.length === 0) return cargas[0];
+
+  const calificables = candidatas.filter(item =>
+    ESTADOS_PERIODO_CALIFICABLES.has(String(item.periodo.estado || '').toLowerCase())
+  );
+  const seleccionables = calificables.length > 0 ? calificables : candidatas;
+
+  return [...seleccionables].sort((a, b) => {
+    const prioridadA = PRIORIDAD_ESTADO_PERIODO[String(a.periodo.estado || '').toLowerCase()] ?? 2;
+    const prioridadB = PRIORIDAD_ESTADO_PERIODO[String(b.periodo.estado || '').toLowerCase()] ?? 2;
+    if (prioridadA !== prioridadB) return prioridadA - prioridadB;
+
+    const inicioA = a.periodo.fecha_inicio ? new Date(a.periodo.fecha_inicio).getTime() : 0;
+    const inicioB = b.periodo.fecha_inicio ? new Date(b.periodo.fecha_inicio).getTime() : 0;
+    if (inicioB !== inicioA) return inicioB - inicioA;
+
+    return Number(b.periodo.id) - Number(a.periodo.id);
+  })[0].carga;
+}
+
+// Compatibilidad con respuestas legadas que aún no incluyen el estado de matrícula.
+// El backend actual siempre lo envía; las pendientes nunca se consideran calificables.
+function esMatriculaConfirmada(estadoMatricula) {
+  return estadoMatricula == null || estadoMatricula === 'confirmada';
+}
+
+function puedeCalificarMatricula(estudiante) {
+  return esMatriculaConfirmada(estudiante?.estado_matricula)
+    && estudiante?.estado_curso !== 'retirado';
+}
+
 function useSafeToast() {
   try {
     return useToast();
@@ -162,6 +216,25 @@ export function EvaluationDashboard() {
 
   const [students, setStudents] = useState([]);
 
+  // El docente solo puede moverse entre los períodos donde tiene carga real.
+  const availablePeriods = isAdmin
+    ? periods
+    : periods.filter(p => teacherLoad.some(t => Number(t.periodo_id) === Number(p.id)));
+
+  const tieneCargaEnPeriodo = teacherLoad.some(
+    t => Number(t.periodo_id) === Number(selectedPeriod)
+  );
+
+  // Si cambia el período (o la carga) y la unidad ya no pertenece al docente, limpiar la selección.
+  useEffect(() => {
+    if (!selectedUnit || isAdmin || !selectedPeriod) return;
+    const sigueAsignada = teacherLoad.some(
+      t => Number(t.periodo_id) === Number(selectedPeriod)
+        && Number(t.unidad_didactica_id) === Number(selectedUnit)
+    );
+    if (!sigueAsignada) setSelectedUnit('');
+  }, [selectedPeriod, selectedUnit, teacherLoad, isAdmin]);
+
   // Cargar Programas, Periodos y Carga del Docente al iniciar
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -175,9 +248,10 @@ export function EvaluationDashboard() {
         setPeriods(perRes || []);
         setTeacherLoad(loadRes || []);
 
-        if (loadRes && loadRes.length > 0) {
-          setSelectedProgram(loadRes[0].programa_id.toString());
-          setSelectedPeriod(loadRes[0].periodo_id.toString());
+        const cargaInicial = elegirCargaInicial(loadRes, perRes);
+        if (cargaInicial) {
+          setSelectedProgram(cargaInicial.programa_id.toString());
+          setSelectedPeriod(cargaInicial.periodo_id.toString());
         } else {
           if (progRes && progRes.length > 0) {
             setSelectedProgram(progRes[0].id.toString());
@@ -191,10 +265,10 @@ export function EvaluationDashboard() {
         console.error('Error fetching initial data', e);
       }
     };
-    if (user) {
+    if (user?.id) {
       fetchInitialData();
     }
-  }, [user]);
+  }, [user?.id]);
 
   // Cargar Malla cuando se selecciona un Programa
   useEffect(() => {
@@ -248,7 +322,10 @@ export function EvaluationDashboard() {
           const gradeRecord = gradesList.find(g => g.matricula_detalle_id === est.matricula_detalle_id);
           return {
             id: est.id,
+            matricula_id: est.matricula_id,
             matricula_detalle_id: est.matricula_detalle_id,
+            estado_matricula: est.estado_matricula,
+            estado_curso: est.estado_curso,
             name: `${est.apellidos}, ${est.nombres}`,
             registro_id: gradeRecord ? gradeRecord.id : null,
             nota_final: gradeRecord?.nota_final ?? ''
@@ -272,6 +349,12 @@ export function EvaluationDashboard() {
 
   const handleGradeChange = (studentId, criteria, value) => {
     if (isReadOnly) return;
+
+    const fila = students.find(s => s.id === studentId);
+    if (!puedeCalificarMatricula(fila)) {
+      setGradeError('La matrícula debe estar confirmada para registrar notas.');
+      return;
+    }
 
     if (value !== '' && !/^\d+$/.test(value)) {
       setGradeError('La nota debe ser un número entero entre 0 y 20');
@@ -297,6 +380,17 @@ export function EvaluationDashboard() {
   const handleSaveGrades = async () => {
     if (!selectedUnit || !selectedPeriod || students.length === 0 || isReadOnly) return;
 
+    const filasNoCalificablesConNota = students.filter(
+      s => !puedeCalificarMatricula(s)
+        && s.nota_final !== ''
+        && s.nota_final !== null
+        && s.nota_final !== undefined
+    );
+    if (filasNoCalificablesConNota.length > 0) {
+      setGradeError('No se pueden guardar notas de matrículas pendientes o retiradas.');
+      return;
+    }
+
     // Validación cliente de todas las notas
     const hasInvalidGrade = students.some(s => {
       if (s.nota_final === '' || s.nota_final === null || s.nota_final === undefined) return false;
@@ -309,11 +403,22 @@ export function EvaluationDashboard() {
       return;
     }
 
+    // Solo se envían filas calificables con nota nueva o registro existente.
+    // Las matrículas pendientes se muestran, pero nunca generan registros de nota.
+    const filasAGuardar = students.filter(s =>
+      puedeCalificarMatricula(s)
+      && (s.registro_id || (s.nota_final !== '' && s.nota_final !== null && s.nota_final !== undefined))
+    );
+    if (filasAGuardar.length === 0) {
+      setSaveError('No hay notas para guardar.');
+      return;
+    }
+
     setSaving(true);
     setSaveError(null);
     setSaveSuccess(null);
     try {
-      const promises = students.map(student => {
+      const promises = filasAGuardar.map(student => {
         const payload = {
           nota_final: student.nota_final !== '' && student.nota_final !== null ? parseInt(student.nota_final, 10) : null
         };
@@ -323,31 +428,30 @@ export function EvaluationDashboard() {
             method: 'PUT',
             body: JSON.stringify(payload)
           }).then(data => ({ status: 'ok', data }));
-        } else {
-          return apiClient.request(`/api/mod-evaluacion/registros`, {
-            method: 'POST',
-            body: JSON.stringify({
-              ...payload,
-              matricula_detalle_id: student.matricula_detalle_id,
-              estudiante_id: student.id,
-              unidad_didactica_id: parseInt(selectedUnit, 10),
-              periodo_id: parseInt(selectedPeriod, 10)
-            })
-          }).then(data => ({ status: 'ok', data }));
         }
+        return apiClient.request(`/api/mod-evaluacion/registros`, {
+          method: 'POST',
+          body: JSON.stringify({
+            ...payload,
+            matricula_detalle_id: student.matricula_detalle_id,
+            estudiante_id: student.id,
+            unidad_didactica_id: parseInt(selectedUnit, 10),
+            periodo_id: parseInt(selectedPeriod, 10)
+          })
+        }).then(data => ({ status: 'ok', data }));
       });
 
       const results = await Promise.all(promises);
+      const resultadosPorId = new Map();
+      filasAGuardar.forEach((student, idx) => resultadosPorId.set(student.id, results[idx]));
 
-      const newStudents = [...students];
-      for (let i = 0; i < results.length; i++) {
-        const res = results[i];
-        if (res.status === 'ok' && !newStudents[i].registro_id) {
-          newStudents[i].registro_id = res.data.id;
+      setStudents(prev => prev.map(student => {
+        const res = resultadosPorId.get(student.id);
+        if (res?.status === 'ok' && !student.registro_id) {
+          return { ...student, registro_id: res.data.id };
         }
-      }
-
-      setStudents(newStudents);
+        return student;
+      }));
       setSaveSuccess('Calificaciones guardadas exitosamente');
       toast.success("¡Calificaciones guardadas exitosamente en el sistema SIGA!");
     } catch (e) {
@@ -378,6 +482,11 @@ export function EvaluationDashboard() {
     if (isNaN(n) || n < 0 || n > 20) return '-';
     return words[n];
   };
+
+  const matriculasPendientesCount = students.filter(
+    s => !esMatriculaConfirmada(s.estado_matricula)
+  ).length;
+  const hayCalificables = students.some(puedeCalificarMatricula);
 
   const gradedStudents = students.filter(s => s.nota_final !== '' && !isNaN(Number(s.nota_final)));
   const aprobadosCount = gradedStudents.filter(s => Number(s.nota_final) >= 13).length;
@@ -429,10 +538,14 @@ export function EvaluationDashboard() {
 
           <button 
             onClick={handleSaveGrades}
-            disabled={saving || !selectedUnit || students.length === 0 || isReadOnly}
-            title={isReadOnly ? (actaStatus?.motivo_bloqueo || 'Calificaciones en solo lectura') : 'Guardar Promedios'}
+            disabled={saving || !selectedUnit || !hayCalificables || isReadOnly}
+            title={
+              isReadOnly
+                ? (actaStatus?.motivo_bloqueo || 'Calificaciones en solo lectura')
+                : (!hayCalificables ? 'No hay matrículas confirmadas para calificar' : 'Guardar Promedios')
+            }
             className={`inline-flex items-center gap-1.5 py-2 px-4 rounded-xl font-medium text-xs shadow-sm transition-all ${
-              saving || !selectedUnit || students.length === 0 || isReadOnly
+              saving || !selectedUnit || !hayCalificables || isReadOnly
                 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' 
                 : 'bg-slate-900 hover:bg-slate-800 text-white cursor-pointer'
             }`}
@@ -513,13 +626,14 @@ export function EvaluationDashboard() {
                 </div>
                 <div>
                   <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Periodo Lectivo</span>
-                  {isAdmin && periods.length > 0 ? (
+                  {availablePeriods.length > 0 ? (
                     <select
+                      aria-label="Periodo lectivo"
                       className="bg-transparent font-bold text-slate-900 border-none p-0 focus:ring-0 cursor-pointer text-xs font-mono"
                       value={selectedPeriod}
                       onChange={(e) => setSelectedPeriod(e.target.value)}
                     >
-                      {periods.map(p => (
+                      {availablePeriods.map(p => (
                         <option key={p.id} value={p.id.toString()}>{p.codigo}</option>
                       ))}
                     </select>
@@ -540,6 +654,7 @@ export function EvaluationDashboard() {
 
               <div className="relative">
                 <select 
+                  aria-label="Seleccionar unidad didáctica a evaluar"
                   className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all appearance-none cursor-pointer"
                   value={selectedUnit}
                   onChange={(e) => setSelectedUnit(e.target.value)}
@@ -547,11 +662,14 @@ export function EvaluationDashboard() {
                 >
                   <option value="" className="text-slate-400">-- Seleccione el curso a evaluar --</option>
                   {malla.map(modulo => {
-                    const hasLoad = teacherLoad.some(t => t.periodo_id === parseInt(selectedPeriod));
-                    const assignedUnits = (isAdmin || !hasLoad)
+                    // Un docente nunca debe ver unidades que no están en su carga lectiva.
+                    const assignedUnits = isAdmin
                       ? modulo.unidades
-                      : modulo.unidades.filter(u => 
-                          teacherLoad.some(t => t.unidad_didactica_id === u.id && t.periodo_id === parseInt(selectedPeriod))
+                      : modulo.unidades.filter(u =>
+                          teacherLoad.some(t =>
+                            Number(t.unidad_didactica_id) === Number(u.id)
+                            && Number(t.periodo_id) === Number(selectedPeriod)
+                          )
                         );
 
                     if (assignedUnits.length === 0) return null;
@@ -574,10 +692,14 @@ export function EvaluationDashboard() {
                 </div>
               </div>
 
-              {teacherLoad.length === 0 && (
+              {!isAdmin && (teacherLoad.length === 0 || !tieneCargaEnPeriodo) && (
                 <div className="mt-3 flex items-center gap-2 p-3 bg-amber-50/70 border border-amber-200/70 rounded-xl text-xs text-amber-800">
                   <AlertTriangle size={15} className="text-amber-600 flex-shrink-0" />
-                  <span>No tienes unidades didácticas asignadas en tu carga lectiva para este periodo.</span>
+                  <span>
+                    {teacherLoad.length === 0
+                      ? 'No tienes unidades didácticas asignadas en tu carga lectiva.'
+                      : 'No tienes unidades didácticas asignadas en el periodo seleccionado.'}
+                  </span>
                 </div>
               )}
             </div>
@@ -633,9 +755,9 @@ export function EvaluationDashboard() {
                           )}
                         </div>
                       </div>
-                      {actaStatus.matriculas_pendientes > 0 && (
+                      {matriculasPendientesCount > 0 && (
                         <span className="text-[11px] text-amber-800 bg-amber-100/80 border border-amber-200 px-2.5 py-1 rounded-lg">
-                          ⚠️ {actaStatus.matriculas_pendientes} matrícula(s) pendiente(s) de confirmación
+                          ⚠️ {matriculasPendientesCount} matrícula(s) pendiente(s) de confirmación
                         </span>
                       )}
                     </div>
@@ -732,18 +854,37 @@ export function EvaluationDashboard() {
                         const numGrade = parseInt(student.nota_final, 10);
                         const hasGrade = student.nota_final !== '' && !isNaN(numGrade);
                         const isPassed = hasGrade && numGrade >= 13;
+                        const rowReadOnly = isReadOnly || !puedeCalificarMatricula(student);
+                        const matriculaConfirmada = esMatriculaConfirmada(student.estado_matricula);
 
                         return (
                           <tr key={student.id} className="hover:bg-slate-50/60 transition-colors">
                             <td className="py-3 px-4 text-center font-mono text-slate-400">{idx + 1}</td>
-                            <td className="py-3 px-4 font-medium text-slate-800 text-xs">{student.name}</td>
+                            <td className="py-3 px-4">
+                              <div className="font-medium text-slate-800 text-xs">{student.name}</div>
+                              <div className="mt-1 flex flex-wrap gap-1.5">
+                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${
+                                  matriculaConfirmada
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                    : 'bg-amber-50 text-amber-800 border-amber-200'
+                                }`}>
+                                  {matriculaConfirmada ? 'Matrícula confirmada' : 'Matrícula pendiente'}
+                                </span>
+                                {student.estado_curso === 'retirado' && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                                    Retirado
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                             <td className="py-2 px-4 text-center">
                               <input 
                                 type="text" 
-                                disabled={isReadOnly}
-                                readOnly={isReadOnly}
+                                disabled={rowReadOnly}
+                                readOnly={rowReadOnly}
+                                title={rowReadOnly && !isReadOnly ? 'La matrícula debe estar confirmada para registrar notas' : undefined}
                                 className={`w-16 mx-auto text-center py-1.5 px-2 border rounded-xl outline-none font-bold text-sm transition-all ${
-                                  isReadOnly
+                                  rowReadOnly
                                     ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed'
                                     : student.nota_final === '' 
                                       ? 'border-slate-200 bg-white text-slate-800 focus:border-slate-900 focus:ring-1 focus:ring-slate-900' 

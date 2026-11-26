@@ -37,6 +37,71 @@ def _es_matricula_calificable(estado_matricula: str, estado_curso: Optional[str]
     """Evalúa en memoria si una matrícula y detalle cumplen la condición calificable canónica."""
     return estado_matricula == "confirmada" and (estado_curso is None or estado_curso != "retirado")
 
+async def _validar_matricula_calificable_para_nota(
+    db: AsyncSession,
+    matricula_detalle_id: int,
+    *,
+    unidad_id: Optional[int] = None,
+    periodo_id: Optional[int] = None,
+    estudiante_id: Optional[int] = None,
+):
+    """Valida que el detalle de matrícula exista, corresponda a la unidad/periodo
+    solicitados y pueda recibir notas (confirmada y no retirada).
+
+    Se usa en los tres caminos de escritura (POST, PUT y batch) para que la
+    restricción no dependa del endpoint que utilice el cliente.
+    """
+    if not matricula_detalle_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Se requiere el detalle de matrícula para registrar la nota."
+        )
+
+    res = await db.execute(
+        text("""
+            SELECT md.unidad_didactica_id, md.estado_curso,
+                   m.estudiante_id, m.periodo_id, m.estado_matricula
+            FROM matricula_detalles md
+            JOIN matriculas m ON m.id = md.matricula_id
+            WHERE md.id = :det_id
+        """),
+        {"det_id": matricula_detalle_id}
+    )
+    row = res.fetchone()
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No se encontró una matrícula activa válida que corresponda al estudiante, unidad didáctica y periodo indicados."
+        )
+
+    real_unidad, estado_curso, real_estudiante, real_periodo, estado_matricula = row
+    if (
+        (unidad_id is not None and int(unidad_id) != real_unidad)
+        or (periodo_id is not None and int(periodo_id) != real_periodo)
+        or (estudiante_id is not None and int(estudiante_id) != real_estudiante)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No se encontró una matrícula activa válida que corresponda al estudiante, unidad didáctica y periodo indicados."
+        )
+
+    if not _es_matricula_calificable(estado_matricula, estado_curso):
+        if estado_matricula == "pendiente":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="La matrícula del estudiante se encuentra en estado 'pendiente'. Solo se permite calificar matrículas en estado 'confirmada'."
+            )
+        if estado_curso == "retirado":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="El estudiante se encuentra en estado 'retirado' en esta unidad didáctica."
+            )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"La matrícula se encuentra en estado '{estado_matricula}'. No se permite calificar."
+        )
+    return row
+
 def _calcular_promedio(c1, c2, c3):
     notas = [n for n in (c1, c2, c3) if n is not None]
     if not notas:
@@ -207,48 +272,14 @@ async def crear_registro(data: RegistroEvaluacionCreate, request: Request, db: A
     # 1.b Validar reglas de cierre de acta y fecha límite (PASO 2 y 4)
     await _validar_cierre_y_fecha_limite(db, data.unidad_didactica_id, data.periodo_id, codigo_periodo)
 
-    # 2. Validar que la matrícula exista y corresponda a la unidad y periodo (BUG-D04 / PASO 1)
-    mat_res = await db.execute(
-        text("""
-            SELECT md.id, m.estado_matricula, md.estado_curso
-            FROM matricula_detalles md
-            JOIN matriculas m ON md.matricula_id = m.id
-            WHERE md.id = :det_id 
-              AND md.unidad_didactica_id = :u_id
-              AND m.estudiante_id = :est_id
-              AND m.periodo_id = :per_id
-        """),
-        {
-            "det_id": data.matricula_detalle_id,
-            "u_id": data.unidad_didactica_id,
-            "est_id": data.estudiante_id,
-            "per_id": data.periodo_id
-        }
+    # 2. Validar que la matrícula exista, corresponda a la unidad/periodo y sea calificable
+    await _validar_matricula_calificable_para_nota(
+        db,
+        data.matricula_detalle_id,
+        unidad_id=data.unidad_didactica_id,
+        periodo_id=data.periodo_id,
+        estudiante_id=data.estudiante_id,
     )
-    mat_row = mat_res.fetchone()
-    if not mat_row:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No se encontró una matrícula activa válida que corresponda al estudiante, unidad didáctica y periodo indicados."
-        )
-
-    estado_mat = mat_row[1]
-    estado_cur = mat_row[2]
-    if not _es_matricula_calificable(estado_mat, estado_cur):
-        if estado_mat == "pendiente":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="La matrícula del estudiante se encuentra en estado 'pendiente'. Solo se permite calificar matrículas en estado 'confirmada'."
-            )
-        if estado_cur == "retirado":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="El estudiante se encuentra en estado 'retirado' en esta unidad didáctica."
-            )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"La matrícula se encuentra en estado '{estado_mat}'. No se permite calificar."
-        )
 
     # 3. Validar no duplicidad
     result = await db.execute(select(RegistroEvaluacion).where(RegistroEvaluacion.matricula_detalle_id == data.matricula_detalle_id))
@@ -466,13 +497,32 @@ async def guardar_registros_batch(items: List[dict], request: Request, db: Async
         # 3.c Validar reglas de cierre de acta y fecha límite en carga_lectiva (409)
         await _validar_cierre_y_fecha_limite(db, u_id, p_id, codigo_periodo)
 
-    # 4. Validar escala vigesimal [0, 20] en todos los items (422)
+    # 4. Validar que cada matrícula implicada pueda recibir notas
+    detalles_validados = set()
+    for item in items:
+        rid = item.get("id") or item.get("registro_id")
+        mid = item.get("matricula_detalle_id") or item.get("matricula_id")
+        db_obj = existing_by_id.get(rid) if rid else (existing_by_mat.get(mid) if mid else None)
+        detalle_id = db_obj.matricula_detalle_id if db_obj else mid
+
+        if detalle_id and detalle_id not in detalles_validados:
+            detalles_validados.add(detalle_id)
+            await _validar_matricula_calificable_para_nota(
+                db,
+                detalle_id,
+                unidad_id=item.get("unidad_didactica_id") or item.get("unidad_id")
+                or (db_obj.unidad_didactica_id if db_obj else None),
+                periodo_id=item.get("periodo_id") or (db_obj.periodo_id if db_obj else None),
+                estudiante_id=item.get("estudiante_id") or (db_obj.estudiante_id if db_obj else None),
+            )
+
+    # 5. Validar escala vigesimal [0, 20] en todos los items (422)
     for item in items:
         for field in ("nota_c1", "nota_c2", "nota_c3", "nota_final"):
             if field in item:
                 _validar_nota_vigesimal(item[field])
 
-    # 5. Aplicar actualizaciones / inserciones en la transacción
+    # 6. Aplicar actualizaciones / inserciones en la transacción
     try:
         actualizados = []
         for item in items:
@@ -612,6 +662,15 @@ async def actualizar_notas(registro_id: int, data: RegistroEvaluacionUpdate, req
 
     # 1.c Validar reglas de cierre de acta y fecha límite en carga_lectiva (PASO 2)
     await _validar_cierre_y_fecha_limite(db, db_obj.unidad_didactica_id, db_obj.periodo_id, codigo_periodo)
+
+    # 1.d La matrícula debe seguir siendo calificable al momento de actualizar la nota
+    await _validar_matricula_calificable_para_nota(
+        db,
+        db_obj.matricula_detalle_id,
+        unidad_id=db_obj.unidad_didactica_id,
+        periodo_id=db_obj.periodo_id,
+        estudiante_id=db_obj.estudiante_id,
+    )
 
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
