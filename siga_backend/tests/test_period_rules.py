@@ -23,7 +23,6 @@ def datos_validos():
     inicio = datetime(2027, 1, 10)
     return {
         "codigo": "2027-i",
-        "nombre": "Primer Semestre 2027",
         "fecha_inicio": inicio,
         "fecha_fin": inicio + timedelta(days=160),
         "fecha_fin_matricula_regular": inicio + timedelta(days=40),

@@ -13,6 +13,7 @@ vi.mock('../core/api/client', () => ({
   }
 }));
 
+// `nombre` simula datos legados de PostgreSQL: no debe aparecer en la interfaz.
 const periodosBase = [
   {
     id: 1,
@@ -72,15 +73,17 @@ describe('PeriodManager - edición segura de periodos lectivos', () => {
     });
   });
 
-  it('muestra un botón Editar por periodo y permite buscar/filtrar', async () => {
+  it('muestra un botón Editar, sólo el código en la lista y permite buscar/filtrar', async () => {
     renderManager();
 
     expect(await screen.findByText('2026-I')).toBeInTheDocument();
     expect(screen.getByTestId('editar-periodo-1')).toBeInTheDocument();
     expect(screen.getByTestId('editar-periodo-2')).toBeInTheDocument();
+    expect(screen.queryByText('Primer Semestre 2026')).not.toBeInTheDocument();
+    expect(screen.queryByText('Segundo Semestre 2026')).not.toBeInTheDocument();
     expect(screen.getByText(/Vinculado a: 12 matrículas/)).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Buscar periodos'), { target: { value: 'segundo' } });
+    fireEvent.change(screen.getByLabelText('Buscar periodos'), { target: { value: '2026-II' } });
     expect(screen.queryByText('2026-I')).not.toBeInTheDocument();
     expect(screen.getByText('2026-II')).toBeInTheDocument();
 
@@ -90,23 +93,22 @@ describe('PeriodManager - edición segura de periodos lectivos', () => {
     expect(screen.queryByText('2026-II')).not.toBeInTheDocument();
   });
 
-  it('precarga los datos actuales y guarda los cambios con confirmación y recarga', async () => {
+  it('precarga los campos originales, oculta el nombre y guarda cambios con confirmación', async () => {
     const onUpdate = vi.fn();
     renderManager(onUpdate);
 
     fireEvent.click(await screen.findByTestId('editar-periodo-1'));
 
     expect(screen.getByLabelText('Código del Periodo')).toHaveValue('2026-I');
-    expect(screen.getByLabelText('Nombre del Periodo')).toHaveValue('Primer Semestre 2026');
+    expect(screen.queryByLabelText('Nombre del Periodo')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Fecha Inicio')).toHaveValue('2026-01-05');
+    expect(screen.getByLabelText('Fecha Fin')).toHaveValue('2026-06-20');
     expect(screen.getByLabelText('Cierre Matrícula Regular')).toHaveValue('2026-02-20');
+    expect(screen.getByLabelText('Cierre Matrícula Extemporánea')).toHaveValue('2026-03-05');
     expect(screen.getByLabelText('Estado')).toHaveValue('en_curso');
     expect(screen.getByText(/El código permanece bloqueado/)).toBeInTheDocument();
     expect(screen.getByLabelText('Código del Periodo')).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText('Nombre del Periodo'), {
-      target: { value: 'Primer Semestre 2026 (Corregido)' }
-    });
     fireEvent.change(screen.getByLabelText('Fecha Fin'), { target: { value: '2026-06-25' } });
     fireEvent.click(screen.getByTestId('periodo-guardar'));
 
@@ -121,10 +123,10 @@ describe('PeriodManager - edición segura de periodos lectivos', () => {
       expect(llamada).toBeTruthy();
       expect(llamada[3]).toMatchObject({
         codigo: '2026-I',
-        nombre: 'Primer Semestre 2026 (Corregido)',
         fecha_fin: '2026-06-25',
         estado: 'en_curso'
       });
+      expect(llamada[3]).not.toHaveProperty('nombre');
     });
 
     expect(await screen.findByTestId('toast-success')).toBeInTheDocument();
@@ -135,19 +137,52 @@ describe('PeriodManager - edición segura de periodos lectivos', () => {
     });
   });
 
-  it('conserva la información editada tras una recarga simulada', async () => {
+  it('crea un periodo con los campos originales y sin campo nombre', async () => {
+    renderManager();
+
+    fireEvent.change(screen.getByLabelText('Código del Periodo'), { target: { value: '2027-i' } });
+    fireEvent.change(screen.getByLabelText('Fecha Inicio'), { target: { value: '2027-01-10' } });
+    fireEvent.change(screen.getByLabelText('Fecha Fin'), { target: { value: '2027-06-20' } });
+    fireEvent.change(screen.getByLabelText('Cierre Matrícula Regular'), { target: { value: '2027-02-20' } });
+    fireEvent.change(screen.getByLabelText('Cierre Matrícula Extemporánea'), { target: { value: '2027-03-05' } });
+    fireEvent.click(screen.getByTestId('periodo-guardar'));
+
+    const confirmacion = await screen.findByTestId('confirm-modal');
+    fireEvent.click(within(confirmacion).getByTestId('confirm-modal-ok'));
+
+    await waitFor(() => {
+      const llamada = apiClient.callModule.mock.calls.find(
+        ([, , metodo]) => metodo === 'POST'
+      );
+      expect(llamada).toBeTruthy();
+      expect(llamada[3]).toEqual({
+        codigo: '2027-I',
+        fecha_inicio: '2027-01-10',
+        fecha_fin: '2027-06-20',
+        fecha_fin_matricula_regular: '2027-02-20',
+        fecha_fin_matricula_extemporanea: '2027-03-05',
+        estado: 'planificacion'
+      });
+    });
+    expect(await screen.findByTestId('toast-success')).toBeInTheDocument();
+  });
+
+  it('permite corregir el código sin relaciones y conserva el cambio tras recargar', async () => {
     const primera = renderManager();
     fireEvent.click(await screen.findByTestId('editar-periodo-2'));
-    fireEvent.change(screen.getByLabelText('Nombre del Periodo'), { target: { value: 'Segundo Semestre (Validado)' } });
+
+    const codigo = screen.getByLabelText('Código del Periodo');
+    expect(codigo).not.toBeDisabled();
+    fireEvent.change(codigo, { target: { value: '2027-II' } });
     fireEvent.click(screen.getByTestId('periodo-guardar'));
     fireEvent.click((await screen.findByTestId('confirm-modal')).querySelector('[data-testid="confirm-modal-ok"]'));
 
-    await waitFor(() => expect(periodos[1].nombre).toBe('Segundo Semestre (Validado)'));
+    await waitFor(() => expect(periodos[1].codigo).toBe('2027-II'));
     primera.unmount();
 
     renderManager();
-    expect(await screen.findByText('Segundo Semestre (Validado)')).toBeInTheDocument();
-    expect(screen.getByText('2026-II')).toBeInTheDocument();
+    expect(await screen.findByText('2027-II')).toBeInTheDocument();
+    expect(screen.queryByText('2026-II')).not.toBeInTheDocument();
   });
 
   it('rechaza un código duplicado sin enviar la petición', async () => {
@@ -164,17 +199,17 @@ describe('PeriodManager - edición segura de periodos lectivos', () => {
   it('cancela la edición con confirmación sin guardar', async () => {
     renderManager();
     fireEvent.click(await screen.findByTestId('editar-periodo-2'));
-    fireEvent.change(screen.getByLabelText('Nombre del Periodo'), { target: { value: 'Cambio temporal' } });
+    fireEvent.change(screen.getByLabelText('Código del Periodo'), { target: { value: '2026-IIB' } });
     fireEvent.click(screen.getByText('Cancelar'));
 
     const confirmacion = await screen.findByTestId('confirm-modal');
     fireEvent.click(within(confirmacion).getByTestId('confirm-modal-ok'));
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Nombre del Periodo')).toHaveValue('');
+      expect(screen.getByLabelText('Código del Periodo')).toHaveValue('');
       expect(screen.getByText('Crear Periodo')).toBeInTheDocument();
     });
     expect(apiClient.callModule.mock.calls.some(([, , metodo]) => metodo === 'PUT')).toBe(false);
-    expect(screen.queryByText('Cambio temporal')).not.toBeInTheDocument();
+    expect(screen.queryByText('2026-IIB')).not.toBeInTheDocument();
   });
 });

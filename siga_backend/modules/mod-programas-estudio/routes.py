@@ -46,7 +46,6 @@ class ProgramaResponse(ProgramaBase):
 # Schemas Periodo Academico
 class PeriodoBase(BaseModel):
     codigo: str
-    nombre: Optional[str] = None
     fecha_inicio: datetime
     fecha_fin: datetime
     estado: str = "planificacion"
@@ -58,7 +57,6 @@ class PeriodoCreate(PeriodoBase):
 
 class PeriodoUpdate(BaseModel):
     codigo: str
-    nombre: Optional[str] = None
     fecha_inicio: datetime
     fecha_fin: datetime
     fecha_fin_matricula_regular: datetime
@@ -67,6 +65,8 @@ class PeriodoUpdate(BaseModel):
 
 class PeriodoResponse(PeriodoBase):
     id: int
+    # Columna legada: se conserva en PostgreSQL pero no es un campo del formulario.
+    nombre: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     relaciones: Optional[dict] = None
@@ -168,7 +168,9 @@ async def crear_periodo(periodo: PeriodoCreate, request: Request, db: AsyncSessi
 
     data = limpiar_fechas_periodo(periodo.model_dump())
     data["codigo"] = normalizar_codigo_periodo(data.get("codigo"))
-    data["nombre"] = str(data.get("nombre") or "").strip() or data["codigo"]
+    # La columna `nombre` existe en producción; se mantiene alineada al código
+    # sin exponerla ni aceptarla como campo editable.
+    data["nombre"] = data["codigo"]
     validar_o_http(data)
 
     duplicado = await db.execute(
@@ -224,7 +226,9 @@ async def actualizar_periodo(
 
     data = limpiar_fechas_periodo(periodo.model_dump())
     data["codigo"] = normalizar_codigo_periodo(data.get("codigo"))
-    data["nombre"] = str(data.get("nombre") or "").strip() or data["codigo"]
+    # La columna `nombre` existe en producción; se mantiene alineada al código
+    # sin exponerla ni aceptarla como campo editable.
+    data["nombre"] = data["codigo"]
     validar_o_http(data)
 
     duplicado = await db.execute(
@@ -242,7 +246,7 @@ async def actualizar_periodo(
             status_code=409,
             detail=(
                 "No se puede cambiar el código de un periodo con matrículas, notas o carga lectiva vinculadas. "
-                "Puede editar el nombre, las fechas y el estado sin afectar esas relaciones."
+                "Puede editar las fechas y el estado sin afectar esas relaciones."
             )
         )
 

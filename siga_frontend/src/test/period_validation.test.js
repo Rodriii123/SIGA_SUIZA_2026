@@ -9,7 +9,6 @@ import {
 
 const formularioValido = {
   codigo: '2027-i',
-  nombre: 'Primer Semestre 2027',
   fecha_inicio: '2027-01-10',
   fecha_fin: '2027-06-20',
   fecha_fin_matricula_regular: '2027-02-20',
@@ -22,13 +21,20 @@ describe('validación del formulario de periodos', () => {
     const { errores, payload } = validarPeriodo(formularioValido);
     expect(errores).toEqual({});
     expect(payload.codigo).toBe('2027-I');
-    expect(payload.nombre).toBe('Primer Semestre 2027');
     expect(payload.estado).toBe('planificacion');
+    expect(payload).not.toHaveProperty('nombre');
   });
 
-  it('usa el código como nombre cuando no se indica uno', () => {
-    const { payload } = validarPeriodo({ ...formularioValido, nombre: '' });
-    expect(payload.nombre).toBe('2027-I');
+  it('no incluye el campo nombre en el payload', () => {
+    const { payload } = validarPeriodo(formularioValido);
+    expect(Object.keys(payload)).toEqual([
+      'codigo',
+      'fecha_inicio',
+      'fecha_fin',
+      'fecha_fin_matricula_regular',
+      'fecha_fin_matricula_extemporanea',
+      'estado'
+    ]);
   });
 
   it('rechaza códigos duplicados excepto el periodo que se está editando', () => {
@@ -62,8 +68,8 @@ describe('validación del formulario de periodos', () => {
     expect(formatearFecha(null)).toBe('—');
   });
 
-  it('busca por código, nombre y estado sin distinguir tildes', () => {
-    const periodo = { codigo: '2026-I', nombre: 'Matrícula Abierta', estado: 'matricula_abierta' };
+  it('busca por código y estado sin distinguir tildes', () => {
+    const periodo = { codigo: '2026-I', estado: 'matricula_abierta' };
     expect(coincidePeriodo(periodo, 'matricula abierta')).toBe(true);
     expect(coincidePeriodo(periodo, '2026')).toBe(true);
     expect(coincidePeriodo(periodo, 'historico')).toBe(false);

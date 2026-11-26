@@ -22,7 +22,6 @@ export const CAMPOS_RELACION = [
 
 export const FORMULARIO_VACIO = {
   codigo: '',
-  nombre: '',
   fecha_inicio: '',
   fecha_fin: '',
   fecha_fin_matricula_regular: '',
@@ -88,7 +87,6 @@ export function coincidePeriodo(periodo, busqueda) {
 
   const contenido = normalizarTexto([
     periodo?.codigo,
-    periodo?.nombre,
     periodo?.estado,
     formatearFecha(periodo?.fecha_inicio),
     formatearFecha(periodo?.fecha_fin)
@@ -104,7 +102,6 @@ export function coincidePeriodo(periodo, busqueda) {
 export function validarPeriodo(formulario, periodos = [], idActual = null) {
   const errores = {};
   const codigo = normalizarCodigo(formulario?.codigo);
-  const nombre = String(formulario?.nombre ?? '').trim();
   const estado = String(formulario?.estado ?? '');
 
   if (!codigo) {
@@ -115,10 +112,6 @@ export function validarPeriodo(formulario, periodos = [], idActual = null) {
     String(periodo?.id) !== String(idActual) && normalizarCodigo(periodo?.codigo) === codigo
   ))) {
     errores.codigo = `Ya existe un periodo con el código "${codigo}".`;
-  }
-
-  if (nombre.length > 120) {
-    errores.nombre = 'El nombre no puede superar los 120 caracteres.';
   }
 
   const inicio = parsearFecha(formulario?.fecha_inicio);
@@ -150,7 +143,6 @@ export function validarPeriodo(formulario, periodos = [], idActual = null) {
 
   const payload = {
     codigo,
-    nombre: nombre || codigo,
     fecha_inicio: formulario?.fecha_inicio || '',
     fecha_fin: formulario?.fecha_fin || '',
     fecha_fin_matricula_regular: formulario?.fecha_fin_matricula_regular || '',

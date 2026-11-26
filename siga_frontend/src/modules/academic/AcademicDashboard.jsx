@@ -734,9 +734,6 @@ export function AcademicDashboard() {
                         <span className="font-bold text-xs text-slate-800 tracking-tight block truncate">
                           {period.codigo}
                         </span>
-                        {period.nombre && period.nombre !== period.codigo && (
-                          <span className="text-[10px] text-slate-500 block truncate">{period.nombre}</span>
-                        )}
                         <span className="text-[10px] text-slate-400 block">
                           {String(period.fecha_inicio ?? '').slice(0, 4) || 'Sin fecha'}
                         </span>

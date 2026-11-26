@@ -70,7 +70,6 @@ async def periodos_edicion(db_session: AsyncSession):
 def payload_periodo(**cambios):
     datos = {
         "codigo": "2027-I",
-        "nombre": "Primer Semestre 2027",
         "fecha_inicio": "2027-01-10T00:00:00",
         "fecha_fin": "2027-06-20T00:00:00",
         "fecha_fin_matricula_regular": "2027-02-20T00:00:00",
@@ -84,14 +83,14 @@ def payload_periodo(**cambios):
 @pytest.mark.asyncio
 async def test_editar_periodo_persiste_y_se_ve_tras_recargar(client_periodos, db_session, periodos_edicion):
     cambios = payload_periodo(
-        nombre="Primer Semestre 2027 (Corregido)",
         fecha_fin="2027-06-30T00:00:00",
         estado="matricula_abierta",
     )
     respuesta = await client_periodos.put("/periodos/501", headers=auth_headers(1), json=cambios)
     assert respuesta.status_code == 200, respuesta.text
     cuerpo = respuesta.json()
-    assert cuerpo["nombre"] == cambios["nombre"]
+    assert cuerpo["codigo"] == "2027-I"
+    assert cuerpo["nombre"] == "2027-I"  # columna legada alineada al código
     assert cuerpo["estado"] == "matricula_abierta"
     assert cuerpo["fecha_fin"].startswith("2027-06-30")
     assert cuerpo["relaciones"]["horarios"] == 1
@@ -100,14 +99,14 @@ async def test_editar_periodo_persiste_y_se_ve_tras_recargar(client_periodos, db
     listado = await client_periodos.get("/periodos")
     assert listado.status_code == 200
     periodo = next(p for p in listado.json() if p["id"] == 501)
-    assert periodo["nombre"] == cambios["nombre"]
+    assert periodo["nombre"] == "2027-I"
     assert periodo["estado"] == "matricula_abierta"
     assert periodo["relaciones"]["total"] >= 1
 
     fila = (await db_session.execute(text(
         "SELECT nombre, estado FROM periodos_academicos WHERE id = 501"
     ))).one()
-    assert fila == (cambios["nombre"], "matricula_abierta")
+    assert fila == ("2027-I", "matricula_abierta")
 
 
 @pytest.mark.asyncio
@@ -170,9 +169,11 @@ async def test_no_se_cambia_codigo_cuando_hay_relaciones(client_periodos, period
     assert respuesta.status_code == 409
     assert "No se puede cambiar el código" in respuesta.json()["detail"]
 
-    # Sí se permite editar nombre/fechas/estado sin tocar el código.
+    # Sí se permite editar fechas/estado sin tocar el código.
     permitido = await client_periodos.put(
-        "/periodos/501", headers=auth_headers(1), json=payload_periodo(nombre="Periodo con horario")
+        "/periodos/501",
+        headers=auth_headers(1),
+        json=payload_periodo(estado="planificacion"),
     )
     assert permitido.status_code == 200
     assert permitido.json()["codigo"] == "2027-I"
@@ -181,7 +182,26 @@ async def test_no_se_cambia_codigo_cuando_hay_relaciones(client_periodos, period
     libre = await client_periodos.put(
         "/periodos/502",
         headers=auth_headers(1),
-        json=payload_periodo(codigo="2027-IIB", nombre="Segundo Semestre 2027"),
+        json=payload_periodo(codigo="2027-IIB"),
     )
     assert libre.status_code == 200
     assert libre.json()["codigo"] == "2027-IIB"
+    assert libre.json()["nombre"] == "2027-IIB"
+
+
+@pytest.mark.asyncio
+async def test_crear_periodo_no_acepta_nombre_del_formulario(client_periodos, db_session, periodos_edicion):
+    respuesta = await client_periodos.post(
+        "/periodos",
+        headers=auth_headers(1),
+        json=payload_periodo(codigo="2027-III", nombre="Campo que no debe usarse"),
+    )
+    assert respuesta.status_code == 201, respuesta.text
+    cuerpo = respuesta.json()
+    assert cuerpo["codigo"] == "2027-III"
+    assert cuerpo["nombre"] == "2027-III"
+
+    fila = (await db_session.execute(text(
+        "SELECT nombre FROM periodos_academicos WHERE codigo = '2027-III'"
+    ))).scalar_one()
+    assert fila == "2027-III"

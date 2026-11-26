@@ -174,19 +174,12 @@ export function PeriodManager({ onClose, onUpdate }) {
 
   const cambiarCampo = (campo, valor) => {
     setErrores((anteriores) => ({ ...anteriores, [campo]: undefined }));
-    setFormulario((anterior) => {
-      const siguiente = { ...anterior, [campo]: valor };
-      if (campo === 'codigo' && (anterior.nombre === anterior.codigo || !anterior.nombre)) {
-        siguiente.nombre = valor;
-      }
-      return siguiente;
-    });
+    setFormulario((anterior) => ({ ...anterior, [campo]: valor }));
   };
 
   const iniciarEdicion = (periodo) => {
     const datos = {
       codigo: periodo.codigo ?? '',
-      nombre: periodo.nombre ?? periodo.codigo ?? '',
       fecha_inicio: soloFecha(periodo.fecha_inicio),
       fecha_fin: soloFecha(periodo.fecha_fin),
       fecha_fin_matricula_regular: soloFecha(periodo.fecha_fin_matricula_regular),
@@ -236,7 +229,7 @@ export function PeriodManager({ onClose, onUpdate }) {
       && normalizarCodigo(formulario.codigo) !== normalizarCodigo(periodoEditando?.codigo)
     ) {
       error(
-        'No se puede cambiar el código: este periodo tiene matrículas, notas o carga lectiva vinculadas. Puede actualizar el nombre y las fechas sin afectar las relaciones.'
+        'No se puede cambiar el código: este periodo tiene matrículas, notas o carga lectiva vinculadas. Puede actualizar las fechas y el estado sin afectar las relaciones.'
       );
       return;
     }
@@ -365,7 +358,7 @@ export function PeriodManager({ onClose, onUpdate }) {
                     <p className="font-bold mb-0.5">Periodo con información vinculada</p>
                     <p>{relaciones.partes.join(' · ')}.</p>
                     <p className="mt-1 font-semibold">
-                      El código permanece bloqueado para no afectar otros módulos. El nombre, las fechas y el estado sí se pueden ajustar.
+                      El código permanece bloqueado para no afectar otros módulos. Las fechas y el estado sí se pueden ajustar.
                     </p>
                   </div>
                 </div>
@@ -383,16 +376,6 @@ export function PeriodManager({ onClose, onUpdate }) {
                 placeholder="Ej. 2026-I"
                 monoespacio
               />
-              <CampoFormulario
-                id="periodo-nombre"
-                etiqueta="Nombre del Periodo"
-                valor={formulario.nombre}
-                onChange={(valor) => cambiarCampo('nombre', valor)}
-                error={errores.nombre}
-                deshabilitado={guardando}
-                placeholder="Ej. Primer Semestre 2026"
-              />
-
               <div className="grid grid-cols-2 gap-2.5">
                 <CampoFormulario
                   id="periodo-inicio"
@@ -573,9 +556,6 @@ export function PeriodManager({ onClose, onUpdate }) {
                           </div>
                           <div className="min-w-0">
                             <h4 className="font-bold text-sm text-slate-900 tracking-tight truncate">{periodo.codigo}</h4>
-                            {periodo.nombre && periodo.nombre !== periodo.codigo && (
-                              <p className="text-[11px] text-slate-500 truncate">{periodo.nombre}</p>
-                            )}
                             <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5 flex-wrap">
                               <Clock size={12} className="text-slate-400 shrink-0" />
                               <span>{formatearFecha(periodo.fecha_inicio)}</span>
