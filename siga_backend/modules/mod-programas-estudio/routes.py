@@ -612,6 +612,12 @@ class ClonarCargaRequest(BaseModel):
     from_periodo_id: int
     to_periodo_id: int
 
+    @model_validator(mode="after")
+    def validar_periodos_distintos(self):
+        if self.from_periodo_id == self.to_periodo_id:
+            raise ValueError("El periodo de origen debe ser diferente al periodo de destino")
+        return self
+
 @router.post("/programas/{programa_id}/carga-lectiva/clonar")
 async def clonar_carga_lectiva(programa_id: int, req: ClonarCargaRequest, request: Request, db: AsyncSession = Depends(get_db)):
     ident = await get_identity(request, db)
@@ -621,16 +627,29 @@ async def clonar_carga_lectiva(programa_id: int, req: ClonarCargaRequest, reques
             detail="No tiene permisos para clonar la carga lectiva de este programa"
         )
 
-    # Validar periodo destino no cerrado
-    per_res = await db.execute(
-        text("SELECT estado FROM periodos_academicos WHERE id = :pid"),
-        {"pid": req.to_periodo_id}
+    # Validar periodos de origen y destino
+    periodos_res = await db.execute(
+        text("SELECT id, estado, fecha_inicio FROM periodos_academicos WHERE id IN (:from_id, :to_id)"),
+        {"from_id": req.from_periodo_id, "to_id": req.to_periodo_id}
     )
-    per_row = per_res.fetchone()
-    if not per_row or per_row[0] in ("cerrado", "finalizado"):
+    periodos = {row[0]: row for row in periodos_res.fetchall()}
+    periodo_destino = periodos.get(req.to_periodo_id)
+    periodo_origen = periodos.get(req.from_periodo_id)
+
+    if not periodo_destino or periodo_destino[1] in ("cerrado", "finalizado"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="No se puede clonar carga lectiva hacia un periodo académico cerrado o finalizado"
+        )
+    if not periodo_origen:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El periodo de origen no existe"
+        )
+    if periodo_origen[2] and periodo_destino[2] and periodo_origen[2] >= periodo_destino[2]:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El periodo de origen debe ser anterior al periodo de destino"
         )
 
     result = await db.execute(

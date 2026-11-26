@@ -438,6 +438,30 @@ async def test_reglas_negocio_carga_lectiva_y_blindaje_actas(client_prog, fix_en
     )
     assert r_clonar.status_code == 200
 
+    # 5. Clonar hacia el mismo periodo debe rechazarse explícitamente
+    r_clonar_mismo = await client_prog.post(
+        f"/programas/{prog_1}/carga-lectiva/clonar",
+        json={"from_periodo_id": p_destino, "to_periodo_id": p_destino},
+        headers=auth_headers(coord_a)
+    )
+    assert r_clonar_mismo.status_code == 422
+
+    # 6. Un periodo posterior no puede usarse como origen
+    p_futuro = 21
+    await db_session.execute(text("""
+        INSERT INTO periodos_academicos (id, codigo, estado, fecha_inicio, fecha_fin)
+        VALUES (:id, '2028-I', 'planificacion', NOW() + interval '180 days', NOW() + interval '270 days')
+        ON CONFLICT (id) DO NOTHING;
+    """), {"id": p_futuro})
+    await db_session.commit()
+
+    r_clonar_futuro = await client_prog.post(
+        f"/programas/{prog_1}/carga-lectiva/clonar",
+        json={"from_periodo_id": p_futuro, "to_periodo_id": p_destino},
+        headers=auth_headers(coord_a)
+    )
+    assert r_clonar_futuro.status_code == 422
+
     # Verificar en base de datos que ninguna fila clonada copió acta_cerrada ni fecha límite
     res_clonadas = await db_session.execute(
         text("SELECT acta_cerrada, fecha_limite_notas FROM carga_lectiva WHERE periodo_id = :pid"),

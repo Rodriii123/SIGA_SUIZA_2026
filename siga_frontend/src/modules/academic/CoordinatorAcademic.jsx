@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../../core/auth/useAuth';
 import { apiClient } from '../../core/api/client';
 import { useToast } from '../../core/ui/ToastContext';
@@ -11,6 +11,7 @@ import { CoordinatorActas } from './CoordinatorActas';
 import { ScheduleBuilder } from './ScheduleBuilder';
 import { GraduationCap, Calendar, BookOpen, ClipboardCheck, UserCog, Clock, X, ClipboardList, BarChart3, ExternalLink, Trash2, Download, Copy, AlertTriangle, KeyRound, FileCheck } from 'lucide-react';
 import { AssignmentModal } from './AssignmentModal';
+import { obtenerPeriodosOrigen, etiquetaPeriodo } from './clonePeriods';
 
 function useSafeToast() {
   try {
@@ -77,6 +78,15 @@ export function CoordinatorAcademic() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showCloneModal, setShowCloneModal] = useState(false);
   const [cloneFromPeriod, setCloneFromPeriod] = useState('');
+
+  const periodosOrigen = useMemo(
+    () => obtenerPeriodosOrigen(periods, selectedPeriod),
+    [periods, selectedPeriod]
+  );
+  const periodoDestino = useMemo(
+    () => periods.find(p => String(p.id) === String(selectedPeriod)) || null,
+    [periods, selectedPeriod]
+  );
 
   // 1. Initial Load
   useEffect(() => {
@@ -329,9 +339,17 @@ export function CoordinatorAcademic() {
       toast.warning("Seleccione primero un programa y periodo actual.");
       return;
     }
-    setCloneFromPeriod('');
+    setCloneFromPeriod(periodosOrigen.length > 0 ? String(periodosOrigen[0].id) : '');
     setShowCloneModal(true);
   };
+
+  useEffect(() => {
+    if (!showCloneModal) return;
+    const isValid = periodosOrigen.some(p => String(p.id) === String(cloneFromPeriod));
+    if (!isValid) {
+      setCloneFromPeriod(periodosOrigen.length > 0 ? String(periodosOrigen[0].id) : '');
+    }
+  }, [showCloneModal, periodosOrigen, cloneFromPeriod]);
 
   const handleExecuteCloneCarga = async () => {
     if (!cloneFromPeriod) {
@@ -347,8 +365,8 @@ export function CoordinatorAcademic() {
       toast.success(res.message || "Carga lectiva clonada correctamente");
       setShowCloneModal(false);
       fetchCargaYHorarios();
-    } catch {
-      toast.error("Error al clonar la carga lectiva. Verifique que el periodo origen tenga registros.");
+    } catch (error) {
+      toast.error(error?.message || "Error al clonar la carga lectiva. Verifique que el periodo origen tenga registros.");
     } finally {
       setLoading(false);
     }
@@ -804,26 +822,50 @@ export function CoordinatorAcademic() {
               <p className="text-xs text-slate-500 leading-relaxed">
                 Seleccione el periodo académico desde el cual desea copiar las asignaciones docentes para este programa:
               </p>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Periodo de Origen
-                </label>
-                <select 
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
-                  value={cloneFromPeriod}
-                  onChange={(e) => setCloneFromPeriod(e.target.value)}
-                >
-                  <option value="">-- Seleccione periodo origen --</option>
-                  {periods
-                    .filter(p => String(p.id) !== String(selectedPeriod))
-                    .map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.nombre || p.codigo} {p.es_regular ? '(Regular)' : ''}
-                      </option>
-                    ))
-                  }
-                </select>
+
+              <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2">
+                <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Periodo destino</p>
+                <p className="text-sm font-semibold text-slate-700">
+                  {periodoDestino ? etiquetaPeriodo(periodoDestino) : 'Periodo actual'}
+                </p>
               </div>
+
+              {periodosOrigen.length > 0 ? (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    Periodo de Origen
+                  </label>
+                  <select
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+                    value={cloneFromPeriod}
+                    onChange={(e) => setCloneFromPeriod(e.target.value)}
+                  >
+                    {periodosOrigen.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {etiquetaPeriodo(p)}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-slate-400 mt-1.5">
+                    Solo se muestran periodos anteriores al periodo destino.
+                  </p>
+                </div>
+              ) : (
+                <div
+                  role="status"
+                  className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 flex gap-2.5"
+                >
+                  <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-amber-800">
+                      No hay períodos de origen disponibles
+                    </p>
+                    <p className="text-xs text-amber-700 leading-relaxed">
+                      No existe un periodo anterior registrado para clonar. Un administrador debe crear el periodo académico previo en “Periodos y Calendario Académico” antes de usar esta función.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="p-4 border-t border-slate-100 bg-slate-50/60 flex justify-end gap-2">
               <button
